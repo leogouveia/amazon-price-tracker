@@ -9,8 +9,8 @@
     // See also https://aka.ms/tsconfig/module
     "module": "nodenext",
     "target": "esnext",
-    "types": ["node"],
-    "lib": ["esnext"],
+    "types": ["node", "vite/client", "preact"],
+    "lib": ["esnext", "dom", "dom.iterable"],
     // For nodejs:
     // "lib": ["esnext"],
     // "types": ["node"],
@@ -36,6 +36,7 @@
     // Recommended Options
     "strict": true,
     "jsx": "react-jsx",
+    "jsxImportSource": "preact",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "noUncheckedSideEffectImports": true,

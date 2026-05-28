@@ -6,24 +6,40 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "web": "tsx src/server.ts",
+    "frontend": "vite --host 0.0.0.0",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "monitor:start": "pm2 start ecosystem.config.cjs",
+    "monitor:stop": "pm2 stop amazon-monitor",
+    "monitor:delete": "pm2 delete amazon-monitor",
+    "monitor:logs": "pm2 logs amazon-monitor"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^25.9.1",
     "@typescript-eslint/parser": "^5.62.0",
+    "daisyui": "^5.5.20",
     "eslint": "^10.4.0",
+    "pm2": "^7.0.1",
     "prettier": "^3.8.3",
+    "tailwindcss": "^4.3.0",
     "tsx": "^4.22.3",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
   },
   "dependencies": {
+    "@hono/node-server": "^2.0.4",
+    "@preact/preset-vite": "^2.10.5",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
-    "playwright": "^1.60.0"
+    "hono": "^4.12.23",
+    "playwright": "^1.60.0",
+    "preact": "^10.29.2",
+    "preact-router": "^4.1.2"
   },
   "packageManager": "pnpm@11.3.0",
   "engines": {
