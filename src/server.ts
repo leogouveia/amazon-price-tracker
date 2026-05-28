@@ -2,6 +2,14 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import {
+  clearSessionCookie,
+  createSessionToken,
+  getSessionFromRequest,
+  isAuthenticatedRequest,
+  setSessionCookie,
+  validateAppPassword,
+} from "./auth";
+import {
   addProduct,
   db,
   deleteProduct,
@@ -15,29 +23,53 @@ import { extractASIN, resolveTargetPrice } from "./utils";
 
 const app = new Hono();
 
-const publicRoutes = ["/api/health"];
+const publicRoutes = ["/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"];
 
 app.use("/api/*", async (c, next) => {
   if (publicRoutes.includes(c.req.path)) {
     return next();
   }
 
-  const token = c.req.header("x-api-token");
-  const expectedToken = process.env.API_TOKEN;
-
-  if (!expectedToken) {
-    return c.json({ error: "API_TOKEN não configurado" }, 500);
+  if (isAuthenticatedRequest(c)) {
+    return next();
   }
 
-  if (token !== expectedToken) {
-    return c.json({ error: "Não autorizado" }, 401);
-  }
-
-  await next();
+  return c.json({ error: "Não autorizado" }, 401);
 });
 
 app.get("/api/health", (c) => {
   return c.json({ status: "ok" });
+});
+
+app.post("/api/auth/login", async (c) => {
+  try {
+    const body = await c.req.json<{ password?: string }>();
+
+    if (!body.password || !validateAppPassword(body.password)) {
+      return c.json({ error: "Credenciais inválidas" }, 401);
+    }
+
+    const token = createSessionToken();
+    setSessionCookie(c, token);
+
+    return c.json({ authenticated: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ error: "Autenticação indisponível" }, 500);
+  }
+});
+
+app.post("/api/auth/logout", (c) => {
+  clearSessionCookie(c);
+  return c.json({ ok: true });
+});
+
+app.get("/api/auth/me", (c) => {
+  if (!getSessionFromRequest(c)) {
+    return c.json({ error: "Não autorizado" }, 401);
+  }
+
+  return c.json({ authenticated: true });
 });
 
 app.get("/api/prices", (c) => {

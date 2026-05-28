@@ -104,29 +104,44 @@ Editar:
 ```env
 TELEGRAM_BOT_TOKEN=seu_token
 TELEGRAM_CHAT_ID=seu_chat_id
+APP_PASSWORD=senha_da_web
+SESSION_SECRET=segredo_longo_aleatorio
+API_TOKEN=token_para_bruno_scripts
 ```
+
+Gerar `SESSION_SECRET`:
+
+```bash
+openssl rand -hex 32
+```
+
+- `APP_PASSWORD` — senha única para login na interface web
+- `SESSION_SECRET` — assina o cookie de sessão (nunca expor no frontend)
+- `API_TOKEN` — apenas para Bruno/scripts via header `x-api-token` (não usar no browser)
 
 ---
 
 ## Executar projeto
 
-Modo desenvolvimento:
+API (com hot reload):
 
 ```bash
-pnpm dev
+pnpm api:dev
 ```
 
-Build:
+Frontend:
 
 ```bash
-pnpm build
+pnpm web
 ```
 
-Executar versão compilada:
+Monitor de preços (cron/manual):
 
 ```bash
 pnpm start
 ```
+
+Acesse a web em `http://localhost:5173` e faça login com `APP_PASSWORD`.
 
 ---
 
