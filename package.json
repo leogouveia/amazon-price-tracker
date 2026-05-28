@@ -7,6 +7,7 @@
   "scripts": {
     "start": "tsx src/index.ts",
     "api": "tsx src/server.ts",
+    "api:dev": "tsx watch src/server.ts",
     "web": "vite --host 0.0.0.0",
     "test": "echo \"Error: no test specified\" && exit 1",
     "api:start": "pm2 start ecosystem.api.cjs",
@@ -16,7 +17,7 @@
     "services:delete": "pm2 delete amazon-api amazon-web",
     "services:logs": "pm2 logs amazon-api amazon-web",
     "services:save": "pm2 save"
-  ,
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -42,7 +43,7 @@
     "hono": "^4.12.23",
     "playwright": "^1.60.0",
     "preact": "^10.29.2",
-    "preact-router": "^4.1.2"
+    "preact-iso": "^2.12.0"
   },
   "packageManager": "pnpm@11.3.0",
   "engines": {

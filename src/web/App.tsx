@@ -1,139 +1,37 @@
-import { useEffect, useState } from "preact/hooks";
+import { LocationProvider, Route, Router } from "preact-iso";
+import { NewProductPage } from "./pages/NewProductPage.js";
+import { ProductsPage } from "./pages/ProductsPage.js";
 import "./style.css";
 
-type Product = {
-  id: number;
-  asin: string;
-  title: string | null;
-  url: string;
-  image_url: string | null;
-  target_price: number;
-  created_at: string;
-  updated_at: string;
-  last_price: number | null;
-  last_checked_at: string | null;
-};
-
-function formatPrice(price: number | null) {
-  if (price === null) return "Não encontrado";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function formatDate(date: string | null) {
-  if (date === null) return "Não verificado";
-  return new Date(date).toLocaleString("pt-BR");
-}
-
 export function App() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/products")
-      .then((res) => res.json())
-      .then((data) => {
-        setProducts(data);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
   return (
-    <main className="min-h-screen bg-base-200 p-6">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold">Amazon Price Tracker</h1>
+    <LocationProvider>
+      <main className="min-h-screen bg-base-200 p-6">
+        <div className="mx-auto max-w-5xl">
+          <nav className="navbar mb-8 rounded-box bg-base-100 px-6 shadow">
+            <div className="flex-1">
+              <a href="/" className="text-xl font-bold">
+                Amazon Price Tracker
+              </a>
+            </div>
 
-          <p className="text-base-content/60">Produtos monitorados</p>
-        </header>
+            <div className="flex gap-2">
+              <a href="/" className="btn btn-ghost">
+                Produtos
+              </a>
 
-        {loading ? (
-          <div className="grid gap-4">
-            {[...Array(3)].map((_, index) => (
-              <div key={index} className="card bg-base-100 shadow-md">
-                <div className="card-body">
-                  <div className="flex gap-5">
-                    <div className="skeleton h-24 w-24 rounded-xl" />
+              <a href="/new" className="btn btn-primary">
+                Novo produto
+              </a>
+            </div>
+          </nav>
 
-                    <div className="flex-1">
-                      <div className="skeleton h-6 w-72 mb-2" />
-                      <div className="skeleton h-4 w-32 mb-4" />
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="skeleton h-24" />
-                        <div className="skeleton h-24" />
-                        <div className="skeleton h-24" />
-                      </div>
-                    </div>
-
-                    <div className="skeleton h-10 w-24 self-center" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-4">
-            {products.map((product) => (
-              <div key={product.id} className="card bg-base-100 shadow-md">
-                <div className="card-body">
-                  <div className="flex gap-5">
-                    <img
-                      src={product.image_url ?? "https://placehold.co/96"}
-                      className="h-24 w-24 rounded-xl object-cover"
-                    />
-
-                    <div className="flex-1">
-                      <h2 className="card-title">{product.title}</h2>
-
-                      <p className="text-sm opacity-60">{product.asin}</p>
-
-                      <div className="mt-4 grid grid-cols-3 gap-3">
-                        <div className="stat rounded-box bg-base-200">
-                          <div className="stat-title">Preço atual</div>
-
-                          <div className="stat-value text-lg">
-                            {formatPrice(product.last_price)}
-                          </div>
-                        </div>
-
-                        <div className="stat rounded-box bg-base-200">
-                          <div className="stat-title">Preço alvo</div>
-
-                          <div className="stat-value text-lg">
-                            {formatPrice(product.target_price)}
-                          </div>
-                        </div>
-
-                        <div className="stat rounded-box bg-base-200">
-                          <div className="stat-title">Última verificação</div>
-
-                          <div className="stat-value text-sm">
-                            {formatDate(product.last_checked_at)}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="self-center">
-                      <a
-                        className="btn btn-primary"
-                        href={product.url}
-                        target="_blank"
-                      >
-                        Abrir
-                      </a>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
+          <Router>
+            <Route path="/" component={ProductsPage} />
+            <Route path="/new" component={NewProductPage} />
+          </Router>
+        </div>
+      </main>
+    </LocationProvider>
   );
 }

@@ -1,5 +1,8 @@
 import Database from "better-sqlite3";
 import { chromium } from "playwright";
+import { extractASIN, parsePrice, targetPriceForDb } from "./utils";
+
+const ACTIVE_PRODUCT = "deleted_at IS NULL";
 
 export type Product = {
   id: number;
@@ -10,7 +13,28 @@ export type Product = {
   target_price: number;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 };
+
+export class DuplicateProductError extends Error {
+  readonly asin: string;
+
+  constructor(asin: string) {
+    super(`O produto ${asin} já está sendo monitorado`);
+    this.name = "DuplicateProductError";
+    this.asin = asin;
+  }
+}
+
+export function findProductByAsin(asin: string): Product | undefined {
+  return db.prepare("SELECT * FROM products WHERE asin = ?").get(asin) as
+    | Product
+    | undefined;
+}
+
+export function isProductActive(product: Product): boolean {
+  return product.deleted_at == null;
+}
 
 export const db: InstanceType<typeof Database> = new Database("prices.db");
 
@@ -54,10 +78,9 @@ db.exec(`
     ON price_history(checked_at);
 `);
 
-function extractASIN(url: string): string | null {
-  const match = url.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i);
-
-  return match?.[1] ?? null;
+const columns = db.prepare("PRAGMA table_info(products)").all() as { name: string }[];
+if (!columns.some((c) => c.name === "deleted_at")) {
+  db.exec("ALTER TABLE products ADD COLUMN deleted_at TEXT");
 }
 
 export async function fetchProductInfo(url: string) {
@@ -83,9 +106,27 @@ export async function fetchProductInfo(url: string) {
       .getAttribute("src")
       .catch(() => null);
 
+    const priceText = await page
+      .locator(".a-price .a-offscreen")
+      .first()
+      .textContent()
+      .catch(() => null);
+
+    const unavailable = await page
+      .locator("#availability")
+      .textContent()
+      .then((t) => /não disponível|currently unavailable/i.test(t ?? ""));
+
+    if (unavailable) {
+      return { title: title?.trim() ?? null, imageUrl, price: null };
+    }
+
+    const price = priceText ? parsePrice(priceText) : null;
+
     return {
       title: title?.trim() ?? null,
       imageUrl,
+      price,
     };
   } finally {
     await browser.close();
@@ -94,102 +135,85 @@ export async function fetchProductInfo(url: string) {
 
 export function addProduct(params: {
   url: string;
-  targetPrice: number;
+  targetPrice?: number | null;
   title: string | null;
   imageUrl: string | null;
+  initialPrice?: number | null;
 }) {
   const asin = extractASIN(params.url);
   if (!asin) {
     throw new Error("ASIN não encontrado na URL");
   }
 
-  db.prepare(
-    `
-    INSERT INTO products (asin, url, title, image_url, target_price)
-    VALUES (@asin, @url, @title, @imageUrl, @targetPrice)
-    ON CONFLICT(asin) DO UPDATE SET
-      url = excluded.url,
-      title = excluded.title,
-      image_url = excluded.image_url,
-      target_price = excluded.target_price,
-      updated_at = CURRENT_TIMESTAMP
-    `,
-  ).run({
-    asin,
-    url: params.url,
-    title: params.title,
-    imageUrl: params.imageUrl,
-    targetPrice: params.targetPrice,
-  });
+  const existing = findProductByAsin(asin);
+  const targetPrice = targetPriceForDb(params.targetPrice);
 
-  return db.prepare("SELECT * FROM products WHERE asin = ?").get(asin);
-}
+  if (existing && isProductActive(existing)) {
+    throw new DuplicateProductError(asin);
+  }
 
-export function upsertProduct(params: {
-  asin: string;
-  url: string;
-  title: string | null;
-  imageUrl: string | null;
-  targetPrice: number;
-}) {
-  db.prepare(
-    `
-    INSERT INTO products(
-    asin,
-    url,
-    title, 
-    image_url,
-    target_price
-    )
-    VALUES (
-    @asin,
-    @url,
-    @title,
-    @imageUrl,
-    @targetPrice
-    )
-     ON CONFLICT(asin) DO UPDATE SET
-      url = excluded.url,
-      title = excluded.title,
-      image_url = excluded.image_url,
-      target_price = excluded.target_price,
-      updated_at = CURRENT_TIMESTAMP
-  `,
-  ).run({
-    asin: params.asin,
-    url: params.url,
-    title: params.title,
-    imageUrl: params.imageUrl,
-    targetPrice: params.targetPrice,
-  });
-  return db
-    .prepare(
+  if (existing && !isProductActive(existing)) {
+    db.prepare(
       `
-      SELECT *
-      FROM products
-      WHERE asin = ?
-    `,
-    )
-    .get(params.asin) as Product;
+      UPDATE products
+      SET url = @url,
+          title = @title,
+          image_url = @imageUrl,
+          target_price = @targetPrice,
+          deleted_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE asin = @asin
+      `,
+    ).run({
+      asin,
+      url: params.url,
+      title: params.title,
+      imageUrl: params.imageUrl,
+      targetPrice,
+    });
+  } else {
+    db.prepare(
+      `
+      INSERT INTO products (asin, url, title, image_url, target_price)
+      VALUES (@asin, @url, @title, @imageUrl, @targetPrice)
+      `,
+    ).run({
+      asin,
+      url: params.url,
+      title: params.title,
+      imageUrl: params.imageUrl,
+      targetPrice,
+    });
+  }
+
+  const product = findProductByAsin(asin) as Product;
+
+  savePriceHistory({
+    productId: product.id,
+    price: params.initialPrice ?? null,
+  });
+
+  return product;
 }
 
 export function listProducts() {
-  return db.prepare("SELECT * FROM products").all() as Product[];
+  return db
+    .prepare(`SELECT * FROM products WHERE ${ACTIVE_PRODUCT}`)
+    .all() as Product[];
 }
 
 export function getPreviousPrice(productId: string) {
   return db
     .prepare(
       `
-        SELECT price FROM price_history
+        SELECT price, checked_at FROM price_history
         WHERE product_id = ?
             AND price IS NOT NULL
-            AND date(checked_at, 'localtime') < date('now', 'localtime')
         ORDER BY checked_at DESC
-        LIMIT 1
+        LIMIT 1 OFFSET 1
         `,
     )
-    .get(productId) as { price: number } | undefined;
+    .get(productId) as { price: number; checked_at: string } | undefined;
 }
 
 export function savePriceHistory(params: {
@@ -236,8 +260,24 @@ export function listProductsPriceHistory() {
          AND ph1.checked_at = ph2.max_checked_at
       ) latest
         ON latest.product_id = p.id
+      WHERE p.deleted_at IS NULL
       ORDER BY p.created_at DESC
     `,
     )
     .all();
+}
+
+export function deleteProduct(asin: string) {
+  const result = db
+    .prepare(
+      `
+      UPDATE products
+      SET deleted_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE asin = ?
+        AND ${ACTIVE_PRODUCT}
+      `,
+    )
+    .run(asin);
+  return result.changes > 0;
 }
