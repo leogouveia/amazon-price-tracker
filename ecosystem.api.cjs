@@ -1,0 +1,28 @@
+const path = require("node:path");
+
+module.exports = {
+  apps: [
+    {
+      name: "amazon-api",
+
+      script: path.join(
+        __dirname,
+        "node_modules",
+        "tsx",
+        "dist",
+        "cli.mjs"
+      ),
+
+      args: "src/server.ts",
+
+      interpreter: "node",
+
+      cwd: __dirname,
+
+      autorestart: true,
+
+      out_file: "./logs/api.out.log",
+      error_file: "./logs/api.error.log",
+    },
+  ],
+};

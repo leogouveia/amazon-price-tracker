@@ -11,10 +11,11 @@ module.exports = {
             cwd: __dirname,
 
             // roda todo dia às 09:00
-            cron_restart: "0 9 * * *",
+            cron_restart: "12 13 * * *",
 
             // não reinicia sozinho depois que terminar
             autorestart: false,
+	    time: true,
 
             // logs
             out_file: "./logs/out.log",
@@ -24,6 +25,7 @@ module.exports = {
             // ambiente
             env: {
                 NODE_ENV: "production",
+	        TZ: 'America/Sao_Paulo'
             },
         },
     ],
