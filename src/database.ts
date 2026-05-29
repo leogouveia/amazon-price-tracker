@@ -246,7 +246,33 @@ export function listProductsPriceHistory() {
         p.updated_at,
 
         latest.price AS last_price,
-        latest.checked_at AS last_checked_at
+        latest.checked_at AS last_checked_at,
+
+        (
+          SELECT ph.price FROM price_history ph
+          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          ORDER BY ph.checked_at DESC
+          LIMIT 1 OFFSET 1
+        ) AS previous_price,
+        (
+          SELECT ph.checked_at FROM price_history ph
+          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          ORDER BY ph.checked_at DESC
+          LIMIT 1 OFFSET 1
+        ) AS previous_checked_at,
+
+        (
+          SELECT ph.price FROM price_history ph
+          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          ORDER BY ph.price ASC, ph.checked_at ASC
+          LIMIT 1
+        ) AS lowest_price,
+        (
+          SELECT ph.checked_at FROM price_history ph
+          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          ORDER BY ph.price ASC, ph.checked_at ASC
+          LIMIT 1
+        ) AS lowest_checked_at
       FROM products p
       LEFT JOIN (
         SELECT ph1.product_id, ph1.price, ph1.checked_at

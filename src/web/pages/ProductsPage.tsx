@@ -15,6 +15,10 @@ type Product = {
   updated_at: string;
   last_price: number | null;
   last_checked_at: string | null;
+  previous_price: number | null;
+  previous_checked_at: string | null;
+  lowest_price: number | null;
+  lowest_checked_at: string | null;
 };
 
 function formatPrice(price: number | null) {
@@ -122,7 +126,8 @@ export function ProductsPage() {
                   <div className="flex-1 space-y-3">
                     <div className="skeleton h-6 w-3/4" />
                     <div className="skeleton h-4 w-32" />
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
@@ -196,13 +201,44 @@ export function ProductsPage() {
                         </div>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div className="rounded-box bg-base-200 px-4 py-3">
                           <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
                             Preço atual
                           </p>
                           <p className="mt-1 text-lg font-semibold">
                             {formatPrice(product.last_price)}
+                          </p>
+                          <p className="mt-1 text-xs text-base-content/50">
+                            {formatDate(product.last_checked_at)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-box bg-base-200 px-4 py-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
+                            Preço anterior
+                          </p>
+                          <p className="mt-1 text-lg font-semibold">
+                            {formatPrice(product.previous_price)}
+                          </p>
+                          <p className="mt-1 text-xs text-base-content/50">
+                            {product.previous_checked_at
+                              ? formatDate(product.previous_checked_at)
+                              : "—"}
+                          </p>
+                        </div>
+
+                        <div className="rounded-box bg-base-200 px-4 py-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
+                            Menor preço
+                          </p>
+                          <p className="mt-1 text-lg font-semibold text-success">
+                            {formatPrice(product.lowest_price)}
+                          </p>
+                          <p className="mt-1 text-xs text-base-content/50">
+                            {product.lowest_checked_at
+                              ? formatDate(product.lowest_checked_at)
+                              : "—"}
                           </p>
                         </div>
 
@@ -212,15 +248,6 @@ export function ProductsPage() {
                           </p>
                           <p className="mt-1 text-lg font-semibold">
                             {formatTargetPrice(product.target_price)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-box bg-base-200 px-4 py-3">
-                          <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
-                            Última verificação
-                          </p>
-                          <p className="mt-1 text-sm font-semibold leading-snug">
-                            {formatDate(product.last_checked_at)}
                           </p>
                         </div>
                       </div>
