@@ -6,7 +6,7 @@ import {
   savePriceHistory,
 } from "./database";
 import { sendTelegramMessage } from "./telegram";
-import { checkVariation, hasTargetPrice } from "./utils";
+import { checkVariation, formatDateTime, hasTargetPrice } from "./utils";
 
 async function main() {
   const products = await listProducts();
@@ -31,7 +31,7 @@ async function main() {
     console.log(
       "Preço anterior:",
       previous
-        ? `${previous.price} (${new Date(previous.checked_at).toLocaleString("pt-BR")})`
+        ? `${previous.price} (${formatDateTime(previous.checked_at)})`
         : "não encontrado",
     );
 
@@ -60,7 +60,7 @@ async function main() {
       ? `${previous.price.toLocaleString("pt-BR", {
         style: "currency",
         currency: "BRL",
-      })} (${new Date(previous.checked_at).toLocaleString("pt-BR")})`
+      })} (${formatDateTime(previous.checked_at)})`
       : "Primeira verificação";
 
     const variation = checkVariation(price, previous?.price) ?? "";

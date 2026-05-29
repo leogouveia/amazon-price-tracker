@@ -30,6 +30,19 @@ export function targetPriceForDb(value: number | null | undefined): number {
     return resolveTargetPrice(value) ?? 0;
 }
 
+export function formatDateTime(value: string | null | undefined): string {
+    if (!value) return "Não verificado";
+
+    // SQLite grava CURRENT_TIMESTAMP em UTC no formato "YYYY-MM-DD HH:MM:SS".
+    // Marcamos como UTC para o JS converter corretamente ao fuso local.
+    const iso = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
+    const date = new Date(iso);
+
+    if (Number.isNaN(date.getTime())) return "Não verificado";
+
+    return date.toLocaleString("pt-BR");
+}
+
 export function parsePrice(text: string): number | null {
     const cleaned = text
         .replace(/\s/g, "")

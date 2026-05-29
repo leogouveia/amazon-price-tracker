@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import "../style.css";
-import { hasTargetPrice } from "../../utils";
+import { formatDateTime, hasTargetPrice } from "../../utils";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { apiFetch } from "../lib/api";
 
@@ -36,8 +36,7 @@ function formatTargetPrice(price: number) {
 }
 
 function formatDate(date: string | null) {
-  if (date === null) return "Não verificado";
-  return new Date(date).toLocaleString("pt-BR");
+  return formatDateTime(date);
 }
 
 export function ProductsPage() {
