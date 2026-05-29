@@ -1,0 +1,24 @@
+{
+    "name": "Amazon Price Tracker",
+    "short_name": "Price Tracker",
+    "description": "Monitor pessoal de preços da Amazon com histórico, alertas e dashboard.",
+    "icons": [
+        {
+            "src": "/icon-192x192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any"
+        },
+        {
+            "src": "/icon-512x512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any"
+        }
+    ],
+    "theme_color": "#6d28d9",
+    "background_color": "#111827",
+    "display": "standalone",
+    "start_url": "/",
+    "scope": "/"
+}
