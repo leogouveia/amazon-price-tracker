@@ -9,6 +9,8 @@
     "api": "tsx src/server.ts",
     "api:dev": "tsx watch src/server.ts",
     "web": "vite --host 0.0.0.0",
+    "build:web": "vite build",
+    "preview:web": "vite preview --host 0.0.0.0",
     "test": "echo \"Error: no test specified\" && exit 1",
     "api:start": "pm2 start ecosystem.api.cjs",
     "web:start": "pm2 start ecosystem.web.cjs",
