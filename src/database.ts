@@ -85,7 +85,7 @@ if (!columns.some((c) => c.name === "deleted_at")) {
 
 export async function fetchProductInfo(url: string) {
   const browser = await chromium.launch({ headless: true });
-
+  const asin = extractASIN(url);
   try {
     const page = await browser.newPage({ locale: "pt-BR" });
 
@@ -116,6 +116,8 @@ export async function fetchProductInfo(url: string) {
       .locator("#availability")
       .textContent()
       .then((t) => /não disponível|currently unavailable/i.test(t ?? ""));
+
+    // await page.screenshot({ path: `screenshot_${asin}_${Date.now()}.png` });
 
     if (unavailable) {
       return { title: title?.trim() ?? null, imageUrl, price: null };
