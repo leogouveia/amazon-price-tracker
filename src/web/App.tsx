@@ -1,4 +1,5 @@
 import { LocationProvider, Route, Router } from "preact-iso";
+import { AppNavbar } from "./components/AppNavbar";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { LoginPage } from "./pages/LoginPage";
 import { NewProductPage } from "./pages/NewProductPage";
@@ -22,31 +23,7 @@ function AppShell() {
 
   return (
     <>
-      <nav className="navbar mb-8 rounded-box bg-base-100 px-6 shadow">
-        <div className="flex-1">
-          <a href="/" className="text-xl font-bold">
-            Amazon Price Tracker
-          </a>
-        </div>
-
-        <div className="flex gap-2">
-          <a href="/" className="btn btn-ghost">
-            Produtos
-          </a>
-
-          <a href="/new" className="btn btn-primary">
-            Novo produto
-          </a>
-
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => logout()}
-          >
-            Sair
-          </button>
-        </div>
-      </nav>
+      <AppNavbar onLogout={logout} />
 
       <Router>
         <Route path="/" component={ProductsPage} />

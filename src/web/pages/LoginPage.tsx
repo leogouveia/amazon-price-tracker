@@ -1,4 +1,5 @@
 import { useState } from "preact/hooks";
+import { BrandLogo } from "../components/BrandLogo";
 import { useAuth } from "../lib/auth";
 
 export function LoginPage() {
@@ -29,6 +30,10 @@ export function LoginPage() {
     <div className="flex min-h-[60vh] items-center justify-center">
       <div className="card w-full max-w-md bg-base-100 shadow-xl">
         <div className="card-body">
+          <div className="mb-2 flex justify-center">
+            <BrandLogo size="md" showTitle={false} />
+          </div>
+
           <h1 className="card-title text-2xl">Entrar</h1>
 
           <p className="text-sm text-base-content/60">
