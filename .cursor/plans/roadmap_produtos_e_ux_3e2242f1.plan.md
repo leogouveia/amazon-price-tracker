@@ -13,13 +13,13 @@ todos:
     status: pending
   - id: monitor-module
     content: Extrair runPriceMonitor() para src/monitor.ts; index.ts usa o módulo
-    status: pending
+    status: completed
   - id: monitor-api
     content: POST /api/monitor/run em server.ts com lock anti-paralelo e auth
-    status: pending
+    status: completed
   - id: monitor-ui
     content: Botão Atualizar preços na web com loading, chamada API e refresh da lista
-    status: pending
+    status: completed
   - id: detail-page-backlog
     content: "[Fase 2] Rota /products/:asin, API history, ProductDetailPage"
     status: pending

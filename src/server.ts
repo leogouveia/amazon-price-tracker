@@ -20,6 +20,10 @@ import {
   listProductsPriceHistory,
 } from "./database";
 import { extractASIN, resolveTargetPrice } from "./utils";
+import {
+  MonitorAlreadyRunningError,
+  runPriceMonitor,
+} from "./monitor";
 
 const app = new Hono();
 
@@ -191,6 +195,26 @@ app.delete("/api/products/:asin", (c) => {
     return c.json({ error: "Produto não encontrado" }, 404);
   }
   return c.json({ ok: true });
+});
+
+app.post("/api/monitor/run", async (c) => {
+  try {
+    const result = await runPriceMonitor();
+    return c.json(result);
+  } catch (error) {
+    if (error instanceof MonitorAlreadyRunningError) {
+      return c.json({ error: error.message }, 409);
+    }
+
+    console.error(error);
+    return c.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Erro ao executar monitoramento",
+      },
+      500,
+    );
+  }
 });
 
 serve({
