@@ -1,4 +1,4 @@
-import { hasTargetPrice } from "../../utils";
+import { getPriceVariation, hasTargetPrice } from "../../utils";
 
 export type ProductSortBy =
   | "created_at"
@@ -33,12 +33,8 @@ function compareNullableNumbers(
   return (a - b) * factor;
 }
 
-function getPriceVariation(product: ProductForSort): number | null {
-  if (product.last_price === null || product.previous_price === null) {
-    return null;
-  }
-
-  return product.last_price - product.previous_price;
+function getPriceVariationDiff(product: ProductForSort): number | null {
+  return getPriceVariation(product.last_price, product.previous_price)?.diff ?? null;
 }
 
 function getTargetPriceForSort(product: ProductForSort): number | null {
@@ -64,8 +60,8 @@ export function sortProducts<T extends ProductForSort>(
       }
       case "variation":
         return compareNullableNumbers(
-          getPriceVariation(a),
-          getPriceVariation(b),
+          getPriceVariationDiff(a),
+          getPriceVariationDiff(b),
           direction,
         );
       case "last_price":

@@ -55,21 +55,39 @@ export function parsePrice(text: string): number | null {
     return Number.isFinite(price) ? price : null;
 }
 
+export type PriceVariation = {
+    icon: string;
+    formattedDiff: string;
+    diff: number;
+};
+
+export function getPriceVariation(
+    price: number | null,
+    previousPrice: number | null | undefined,
+): PriceVariation | null {
+    if (price === null || previousPrice == null) {
+        return null;
+    }
+
+    const diff = price - previousPrice;
+    const icon = diff > 0 ? "⬆️🔴" : diff < 0 ? "⬇️🟢" : "➖🟡";
+    const formattedDiff = diff.toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL",
+        signDisplay: "exceptZero",
+    });
+
+    return { icon, formattedDiff, diff };
+}
+
 export function checkVariation(
     price: number | null,
     previousPrice: number | undefined,
 ): string {
-    if (price !== null && previousPrice != null) {
-        const diff = price - previousPrice;
-
-        const icon = diff > 0 ? "⬆️🔴" : diff < 0 ? "⬇️🟢" : "➖🟡";
-        const formattedDiff = diff.toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-            signDisplay: "exceptZero",
-        });
-
-        return `${icon} <b>Variação:</b> ${formattedDiff}\n`;
+    const variation = getPriceVariation(price, previousPrice);
+    if (!variation) {
+        return "";
     }
-    return "";
+
+    return `${variation.icon} <b>Variação:</b> ${variation.formattedDiff}\n`;
 }

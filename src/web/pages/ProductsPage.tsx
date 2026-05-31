@@ -1,6 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import "../style.css";
-import { formatDateTime, hasTargetPrice } from "../../utils";
+import { formatDateTime, getPriceVariation, hasTargetPrice } from "../../utils";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { apiFetch } from "../lib/api";
 import {
@@ -49,6 +49,12 @@ function formatTargetPrice(price: number) {
 
 function formatDate(date: string | null) {
   return formatDateTime(date);
+}
+
+function variationColorClass(diff: number): string {
+  if (diff > 0) return "text-error";
+  if (diff < 0) return "text-success";
+  return "text-warning";
 }
 
 function matchesSearch(product: Product, query: string): boolean {
@@ -286,7 +292,8 @@ export function ProductsPage() {
                   <div className="flex-1 space-y-3">
                     <div className="skeleton h-6 w-3/4" />
                     <div className="skeleton h-4 w-32" />
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                      <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
                       <div className="skeleton h-20" />
@@ -326,6 +333,10 @@ export function ProductsPage() {
         <div className="grid gap-4">
           {visibleProducts.map((product) => {
             const isDeleting = deletingAsin === product.asin;
+            const variation = getPriceVariation(
+              product.last_price,
+              product.previous_price,
+            );
 
             return (
               <div key={product.id} className="card bg-base-100 shadow-md">
@@ -376,7 +387,7 @@ export function ProductsPage() {
                         </div>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
                         <div className="rounded-box bg-base-200 px-4 py-3">
                           <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
                             Preço atual
@@ -386,6 +397,28 @@ export function ProductsPage() {
                           </p>
                           <p className="mt-1 text-xs text-base-content/50">
                             {formatDate(product.last_checked_at)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-box bg-base-200 px-4 py-3">
+                          <p className="text-xs font-medium uppercase tracking-wide text-base-content/60">
+                            Variação
+                          </p>
+                          {variation ? (
+                            <p
+                              className={`mt-1 text-lg font-semibold ${variationColorClass(variation.diff)}`}
+                            >
+                              {variation.icon} {variation.formattedDiff}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-lg font-semibold text-base-content/40">
+                              —
+                            </p>
+                          )}
+                          <p className="mt-1 text-xs text-base-content/50">
+                            {product.previous_price !== null
+                              ? `vs ${formatPrice(product.previous_price)}`
+                              : "Sem histórico"}
                           </p>
                         </div>
 
