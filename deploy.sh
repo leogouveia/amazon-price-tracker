@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-APP_DIR="/home/leogouveia/apps/amazon-price-tracker"
+APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WEB_DIR="/var/www/amazon-price-tracker"
 PM2_PROCESS="amazon-api"
 
