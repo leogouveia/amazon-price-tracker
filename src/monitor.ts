@@ -26,10 +26,67 @@ export class MonitorAlreadyRunningError extends Error {
   }
 }
 
+type ProductReport = {
+  title: string;
+  url: string;
+  formattedPrice: string;
+  formattedPreviousPrice: string;
+  variation: string;
+  targetLine: string;
+  reachedTarget: boolean;
+};
+
 let monitorRunning = false;
 
 export function isMonitorRunning(): boolean {
   return monitorRunning;
+}
+
+function formatCurrency(value: number | null | undefined): string {
+  if (value == null) {
+    return "Não encontrado";
+  }
+
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function buildMonitorTelegramMessage(
+  entries: ProductReport[],
+  errors: MonitorProductError[],
+): string {
+  const lines: string[] = [
+    "📊 <b>Monitoramento de preços</b>",
+    `📅 ${new Date().toLocaleString("pt-BR")}`,
+    "",
+  ];
+
+  for (const entry of entries) {
+    const status = entry.reachedTarget ? "🔥" : "👀";
+    lines.push(`${status} <b>${entry.title}</b>`);
+    lines.push(
+      `💰 ${entry.formattedPrice} | 🕒 ${entry.formattedPreviousPrice}`,
+    );
+    if (entry.variation) {
+      lines.push(entry.variation.trimEnd());
+    }
+    if (entry.targetLine) {
+      lines.push(entry.targetLine.trimEnd());
+    }
+    lines.push(`🔗 <a href="${entry.url}">Abrir produto</a>`);
+    lines.push("");
+  }
+
+  if (errors.length > 0) {
+    lines.push(`❌ <b>Erros (${errors.length})</b>`);
+    for (const error of errors) {
+      lines.push(`• ${error.asin}: ${error.message}`);
+    }
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 export async function runPriceMonitor(): Promise<MonitorResult> {
@@ -40,6 +97,7 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
   monitorRunning = true;
   const startedAt = Date.now();
   const errors: MonitorProductError[] = [];
+  const reports: ProductReport[] = [];
   let checked = 0;
 
   try {
@@ -74,43 +132,23 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
           hasTargetPrice(product.target_price) &&
           price <= product.target_price;
 
-        const status = reachedTarget
-          ? "🔥 Abaixo do preço alvo!"
-          : "👀 Monitoramento diário";
-
-        const formattedPrice = price?.toLocaleString("pt-BR", {
-          style: "currency",
-          currency: "BRL",
-        });
-
-        const targetLine = hasTargetPrice(product.target_price)
-          ? `🎯 <b>Preço alvo:</b> ${product.target_price.toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-          })}\n\n`
-          : "";
-
         const formattedPreviousPrice = previous
-          ? `${previous.price.toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-          })} (${formatDateTime(previous.checked_at)})`
+          ? `${formatCurrency(previous.price)} (${formatDateTime(previous.checked_at)})`
           : "Primeira verificação";
 
-        const variation = checkVariation(price, previous?.price) ?? "";
+        const targetLine = hasTargetPrice(product.target_price)
+          ? `🎯 Alvo: ${formatCurrency(product.target_price)}`
+          : "";
 
-        await sendTelegramMessage(
-          `${status}\n\n` +
-          `📦 <b>${title?.trim() ?? product.id}</b>\n\n` +
-          `━━━━━━━━━━━━━━\n\n` +
-          `💰 <b>Preço atual:</b> ${formattedPrice ?? "Não encontrado"}\n` +
-          `🕒 <b>Último preço:</b> ${formattedPreviousPrice}\n` +
-          variation +
-          targetLine +
-          `📅 <b>Verificado em:</b> ${new Date().toLocaleString("pt-BR")}\n\n` +
-          `━━━━━━━━━━━━━━\n\n` +
-          `🔗 <a href="${product.url}">Abrir produto</a>`,
-        );
+        reports.push({
+          title: title?.trim() ?? String(product.id),
+          url: product.url,
+          formattedPrice: formatCurrency(price),
+          formattedPreviousPrice,
+          variation: checkVariation(price, previous?.price) ?? "",
+          targetLine,
+          reachedTarget,
+        });
 
         checked += 1;
       } catch (error) {
@@ -121,6 +159,10 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
         });
         console.error(`Erro ao verificar produto ${product.asin}:`, error);
       }
+    }
+
+    if (reports.length > 0 || errors.length > 0) {
+      await sendTelegramMessage(buildMonitorTelegramMessage(reports, errors));
     }
 
     return {
