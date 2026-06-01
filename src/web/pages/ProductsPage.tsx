@@ -352,7 +352,12 @@ export function ProductsPage() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <h2 className="text-lg font-bold leading-snug">
-                            {product.title ?? "Produto sem título"}
+                            <a
+                              href={`/products/${product.asin}`}
+                              className="link link-hover"
+                            >
+                              {product.title ?? "Produto sem título"}
+                            </a>
                           </h2>
                           <p className="mt-1 text-sm text-base-content/60">
                             {product.asin}
@@ -360,6 +365,13 @@ export function ProductsPage() {
                         </div>
 
                         <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                          <a
+                            className="btn btn-outline btn-sm"
+                            href={`/products/${product.asin}`}
+                          >
+                            Ver detalhes
+                          </a>
+
                           <a
                             className="btn btn-primary btn-sm"
                             href={product.url}

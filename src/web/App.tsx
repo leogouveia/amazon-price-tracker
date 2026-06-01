@@ -3,6 +3,7 @@ import { AppNavbar } from "./components/AppNavbar";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { LoginPage } from "./pages/LoginPage";
 import { NewProductPage } from "./pages/NewProductPage";
+import { ProductDetailPage } from "./pages/ProductDetailPage";
 import { ProductsPage } from "./pages/ProductsPage";
 import "./style.css";
 
@@ -27,6 +28,7 @@ function AppShell() {
 
       <Router>
         <Route path="/" component={ProductsPage} />
+        <Route path="/products/:asin" component={ProductDetailPage} />
         <Route path="/new" component={NewProductPage} />
       </Router>
     </>

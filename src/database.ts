@@ -233,10 +233,7 @@ export function savePriceHistory(params: {
   });
 }
 
-export function listProductsPriceHistory() {
-  return db
-    .prepare(
-      `
+const PRODUCT_PRICE_SUMMARY_SQL = `
       SELECT
         p.id,
         p.asin,
@@ -288,11 +285,72 @@ export function listProductsPriceHistory() {
          AND ph1.checked_at = ph2.max_checked_at
       ) latest
         ON latest.product_id = p.id
+`;
+
+export type ProductPriceSummary = {
+  id: number;
+  asin: string;
+  title: string | null;
+  url: string;
+  image_url: string | null;
+  target_price: number;
+  created_at: string;
+  updated_at: string;
+  last_price: number | null;
+  last_checked_at: string | null;
+  previous_price: number | null;
+  previous_checked_at: string | null;
+  lowest_price: number | null;
+  lowest_checked_at: string | null;
+};
+
+export type PriceHistoryEntry = {
+  price: number;
+  checked_at: string;
+};
+
+export function listProductsPriceHistory() {
+  return db
+    .prepare(
+      `
+      ${PRODUCT_PRICE_SUMMARY_SQL}
       WHERE p.deleted_at IS NULL
       ORDER BY p.created_at DESC
     `,
     )
-    .all();
+    .all() as ProductPriceSummary[];
+}
+
+export function getProductDetailByAsin(
+  asin: string,
+): ProductPriceSummary | undefined {
+  return db
+    .prepare(
+      `
+      ${PRODUCT_PRICE_SUMMARY_SQL}
+      WHERE p.deleted_at IS NULL AND p.asin = ?
+    `,
+    )
+    .get(asin) as ProductPriceSummary | undefined;
+}
+
+export function getProductPriceHistory(
+  asin: string,
+): PriceHistoryEntry[] | null {
+  const product = findProductByAsin(asin);
+  if (!product || !isProductActive(product)) {
+    return null;
+  }
+
+  return db
+    .prepare(
+      `
+      SELECT price, checked_at FROM price_history
+      WHERE product_id = ? AND price IS NOT NULL
+      ORDER BY checked_at ASC
+    `,
+    )
+    .all(product.id) as PriceHistoryEntry[];
 }
 
 export function deleteProduct(asin: string) {

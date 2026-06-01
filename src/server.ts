@@ -16,6 +16,8 @@ import {
   DuplicateProductError,
   fetchProductInfo,
   findProductByAsin,
+  getProductDetailByAsin,
+  getProductPriceHistory,
   isProductActive,
   listProductsPriceHistory,
 } from "./database";
@@ -94,6 +96,28 @@ app.get("/api/prices", (c) => {
 app.get("/api/products", (c) => {
   const rows = listProductsPriceHistory();
   return c.json(rows);
+});
+
+app.get("/api/products/:asin/history", (c) => {
+  const asin = c.req.param("asin");
+  const history = getProductPriceHistory(asin);
+
+  if (history === null) {
+    return c.json({ error: "Produto não encontrado" }, 404);
+  }
+
+  return c.json(history);
+});
+
+app.get("/api/products/:asin", (c) => {
+  const asin = c.req.param("asin");
+  const product = getProductDetailByAsin(asin);
+
+  if (!product) {
+    return c.json({ error: "Produto não encontrado" }, 404);
+  }
+
+  return c.json(product);
 });
 
 app.post("/api/products", async (c) => {
