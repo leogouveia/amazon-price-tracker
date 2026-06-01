@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
 import "../style.css";
 import { formatDateTime, getPriceVariation, hasTargetPrice } from "../../utils";
+import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { apiFetch } from "../lib/api";
 
 type ProductDetail = {
@@ -271,6 +272,10 @@ export function ProductDetailPage() {
                   ? "Nenhuma verificação com preço registrada."
                   : `${history.length} registro${history.length === 1 ? "" : "s"}`}
               </p>
+
+              {history.length > 0 && (
+                <PriceHistoryChart history={history} className="mt-4" />
+              )}
 
               {historyNewestFirst.length > 0 && (
                 <div className="mt-4 overflow-x-auto">

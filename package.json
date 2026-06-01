@@ -45,6 +45,7 @@
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "hono": "^4.12.23",
+    "lightweight-charts": "^5.0.9",
     "playwright": "^1.60.0",
     "preact": "^10.29.2",
     "preact-iso": "^2.12.0"
