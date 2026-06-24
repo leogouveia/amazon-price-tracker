@@ -4,8 +4,8 @@ import { Hono } from "hono";
 import {
   clearSessionCookie,
   createSessionToken,
-  getSessionFromRequest,
   isAuthenticatedRequest,
+  isMobileClient,
   setSessionCookie,
   validateAppPassword,
 } from "./auth";
@@ -26,9 +26,61 @@ import {
   MonitorAlreadyRunningError,
   runPriceMonitor,
 } from "./monitor";
+import { cors } from "hono/cors";
 
 const app = new Hono();
 
+const defaultCorsOrigins =
+  process.env.NODE_ENV === "production"
+    ? ["https://tracker2.leogouveia.com"]
+    : [
+      "http://localhost:5173",
+      "http://127.0.0.1:5173",
+      "http://localhost:8081",
+      "http://localhost:8082",
+      "http://127.0.0.1:8081",
+      "http://127.0.0.1:8082",
+    ];
+
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(",").map((origin) => origin.trim())
+  : defaultCorsOrigins;
+
+function isAllowedCorsOrigin(origin: string): boolean {
+  if (corsOrigins.includes(origin)) {
+    return true;
+  }
+
+  // Capacitor / Ionic WebView
+  if (/^capacitor:\/\//i.test(origin)) {
+    return true;
+  }
+
+  if (/^ionic:\/\//i.test(origin)) {
+    return true;
+  }
+
+  // Capacitor Android costuma usar https://localhost
+  if (/^https?:\/\/localhost(:\d+)?$/i.test(origin)) {
+    return true;
+  }
+
+  return false;
+}
+
+app.use("/api/*", cors({
+  origin: (origin) => (origin && isAllowedCorsOrigin(origin) ? origin : null),
+  allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-api-token",
+    "x-session-token",
+    "x-client",
+  ],
+  credentials: true,
+}),
+);
 const publicRoutes = ["/api/health", "/api/auth/login", "/api/auth/logout", "/api/auth/me"];
 
 app.use("/api/*", async (c, next) => {
@@ -49,7 +101,7 @@ app.get("/api/health", (c) => {
 
 app.post("/api/auth/login", async (c) => {
   try {
-    const body = await c.req.json<{ password?: string }>();
+    const body = await c.req.json<{ password?: string; client?: string }>();
 
     if (!body.password || !validateAppPassword(body.password)) {
       return c.json({ error: "Credenciais inválidas" }, 401);
@@ -58,7 +110,13 @@ app.post("/api/auth/login", async (c) => {
     const token = createSessionToken();
     setSessionCookie(c, token);
 
-    return c.json({ authenticated: true });
+    const wantsMobileToken =
+      body.client === "mobile" || isMobileClient(c);
+
+    return c.json({
+      authenticated: true,
+      ...(wantsMobileToken ? { token } : {}),
+    });
   } catch (error) {
     console.error(error);
     return c.json({ error: "Autenticação indisponível" }, 500);
@@ -71,7 +129,7 @@ app.post("/api/auth/logout", (c) => {
 });
 
 app.get("/api/auth/me", (c) => {
-  if (!getSessionFromRequest(c)) {
+  if (!isAuthenticatedRequest(c)) {
     return c.json({ error: "Não autorizado" }, 401);
   }
 

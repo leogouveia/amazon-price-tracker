@@ -1,5 +1,7 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import Database from "better-sqlite3";
-import { chromium } from "playwright";
+import { chromium, type Page } from "playwright";
 import { extractASIN, parsePrice, targetPriceForDb } from "./utils";
 
 const ACTIVE_PRODUCT = "deleted_at IS NULL";
@@ -83,9 +85,50 @@ if (!columns.some((c) => c.name === "deleted_at")) {
   db.exec("ALTER TABLE products ADD COLUMN deleted_at TEXT");
 }
 
+async function handleAmazonContinueShopping(page: Page): Promise<boolean> {
+  try {
+    const bodyText = await page.locator("body").textContent({ timeout: 5000 }).catch(() => null);
+    if (!bodyText) return false;
+
+    if (!/continuar comprando/i.test(bodyText)) return false;
+
+    const clickable = page
+      .getByRole("button", { name: /continuar comprando/i })
+      .or(page.getByRole("link", { name: /continuar comprando/i }))
+      .first();
+
+    const inputByValue = page.locator('input[type="submit"][value*="Continuar" i]').first();
+
+    const target = (await clickable.count()) > 0 ? clickable : inputByValue;
+
+    if ((await target.count()) === 0) return false;
+
+    await target.click();
+    await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function saveDebugFiles(page: Page, asin: string): Promise<void> {
+  try {
+    const logsDir = "logs";
+    await mkdir(logsDir, { recursive: true });
+    const timestamp = Date.now();
+    await page.screenshot({ path: join(logsDir, `screenshot_${asin}_${timestamp}.png`) });
+    const html = await page.content();
+    await writeFile(join(logsDir, `html_${asin}_${timestamp}.html`), html, "utf-8");
+    console.log(`[scraper] Debug salvo em ${logsDir}/screenshot_${asin}_${timestamp}.png e html_${asin}_${timestamp}.html`);
+  } catch (err) {
+    console.warn("[scraper] Não foi possível salvar arquivos de debug:", err);
+  }
+}
+
 export async function fetchProductInfo(url: string) {
   const browser = await chromium.launch({ headless: true });
-  const asin = extractASIN(url);
+  const asin = extractASIN(url) ?? "unknown";
   try {
     const page = await browser.newPage({ locale: "pt-BR" });
 
@@ -93,6 +136,11 @@ export async function fetchProductInfo(url: string) {
       waitUntil: "domcontentloaded",
       timeout: 60000,
     });
+
+    const detectedContinueShopping = await handleAmazonContinueShopping(page);
+    if (detectedContinueShopping) {
+      console.log(`[scraper] Tela "Continuar comprando" detectada e tratada (asin=${asin})`);
+    }
 
     const title = await page
       .locator("#productTitle")
@@ -115,15 +163,21 @@ export async function fetchProductInfo(url: string) {
     const unavailable = await page
       .locator("#availability")
       .textContent()
-      .then((t) => /não disponível|currently unavailable/i.test(t ?? ""));
-
-    // await page.screenshot({ path: `screenshot_${asin}_${Date.now()}.png` });
+      .then((t) => /não disponível|currently unavailable/i.test(t ?? ""))
+      .catch(() => false);
 
     if (unavailable) {
       return { title: title?.trim() ?? null, imageUrl, price: null };
     }
 
     const price = priceText ? parsePrice(priceText) : null;
+
+    if (price === null) {
+      console.warn(
+        `[scraper] Preço não encontrado (asin=${asin}, url_final=${page.url()}, continuar_comprando=${detectedContinueShopping})`,
+      );
+      await saveDebugFiles(page, asin);
+    }
 
     return {
       title: title?.trim() ?? null,

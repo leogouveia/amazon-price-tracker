@@ -23,3 +23,6 @@ Thumbs.db
 
 # screenshots
 screenshot*.png
+
+# debug output
+logs/

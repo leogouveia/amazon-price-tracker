@@ -4,19 +4,19 @@ meta {
   seq: 2
 }
 
-post {
-  url: http://localhost:3000/api/products
+get {
+  url: http://tracker2.leogouveia.com/api/products
   body: json
   auth: inherit
 }
 
-params:query {
-  : 
+headers {
+  x-api-token: *tyjbvtYsF8v*!RRtV*J3@XuiGQLErb_r
 }
 
 body:json {
   {
-    "url": "https://www.amazon.com.br/dp/B09X6GGCNQ",
+    "url": "https://www.amazon.com.br/dp/B001GJ2ZP2",
     "targetPrice": 0
   }
 }

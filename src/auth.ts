@@ -95,21 +95,56 @@ export function clearSessionCookie(c: Context): void {
   });
 }
 
-export function getSessionFromRequest(c: Context): string | undefined {
-  const token = getCookie(c, SESSION_COOKIE_NAME);
-  if (!token || !verifySessionToken(token)) {
+function readBearerToken(c: Context): string | undefined {
+  const authorization = c.req.header("Authorization");
+  if (!authorization?.startsWith("Bearer ")) {
     return undefined;
   }
-  return token;
+
+  const token = authorization.slice("Bearer ".length).trim();
+  return token.length > 0 ? token : undefined;
+}
+
+/** Sessão via cookie (web), Bearer ou x-session-token (mobile / híbrido). */
+export function getSessionTokenFromRequest(c: Context): string | undefined {
+  const cookieToken = getCookie(c, SESSION_COOKIE_NAME);
+  if (cookieToken && verifySessionToken(cookieToken)) {
+    return cookieToken;
+  }
+
+  const bearerToken = readBearerToken(c);
+  if (bearerToken && verifySessionToken(bearerToken)) {
+    return bearerToken;
+  }
+
+  const headerToken = c.req.header("x-session-token");
+  if (headerToken && verifySessionToken(headerToken)) {
+    return headerToken;
+  }
+
+  return undefined;
+}
+
+/** @deprecated Use getSessionTokenFromRequest */
+export function getSessionFromRequest(c: Context): string | undefined {
+  return getSessionTokenFromRequest(c);
+}
+
+export function isApiTokenRequest(c: Context): boolean {
+  const apiToken = c.req.header("x-api-token");
+  const expectedToken = process.env.API_TOKEN;
+  return Boolean(expectedToken && apiToken === expectedToken);
 }
 
 export function isAuthenticatedRequest(c: Context): boolean {
-  if (getSessionFromRequest(c)) {
+  if (getSessionTokenFromRequest(c)) {
     return true;
   }
 
-  const apiToken = c.req.header("x-api-token");
-  const expectedToken = process.env.API_TOKEN;
+  return isApiTokenRequest(c);
+}
 
-  return Boolean(expectedToken && apiToken === expectedToken);
+export function isMobileClient(c: Context): boolean {
+  const client = c.req.header("x-client")?.toLowerCase();
+  return client === "mobile";
 }
