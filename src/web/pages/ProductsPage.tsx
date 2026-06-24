@@ -5,8 +5,8 @@ import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { apiFetch } from "../lib/api";
 import {
   getTotalPages,
-  paginateProducts,
   PAGE_SIZE,
+  paginateProducts,
   sortProducts,
   type ProductSortBy,
   type SortDirection,
@@ -74,6 +74,7 @@ export function ProductsPage() {
   const [sortBy, setSortBy] = useState<ProductSortBy>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [deletingAsin, setDeletingAsin] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<Product | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export function ProductsPage() {
 
   useEffect(() => {
     setPage(1);
-  }, [search, sortBy, sortDirection]);
+  }, [search, sortBy, sortDirection, pageSize]);
 
   async function handleRunMonitor() {
     try {
@@ -167,9 +168,9 @@ export function ProductsPage() {
   );
 
   const sortedProducts = sortProducts(filteredProducts, sortBy, sortDirection);
-  const totalPages = getTotalPages(sortedProducts.length);
+  const totalPages = getTotalPages(sortedProducts.length, pageSize);
   const currentPage = Math.min(page, totalPages);
-  const visibleProducts = paginateProducts(sortedProducts, currentPage);
+  const visibleProducts = paginateProducts(sortedProducts, currentPage, pageSize);
 
   return (
     <div className="grid gap-6">
@@ -266,6 +267,25 @@ export function ProductsPage() {
             >
               {sortDirection === "asc" ? "↑ Crescente" : "↓ Decrescente"}
             </button>
+
+            <label className="form-control w-full sm:w-36">
+              <div className="label py-0">
+                <span className="label-text">Itens por página</span>
+              </div>
+              <select
+                className="select select-bordered"
+                value={pageSize === Infinity ? "all" : String(pageSize)}
+                onChange={(e) => {
+                  const v = e.currentTarget.value;
+                  setPageSize(v === "all" ? Infinity : Number(v));
+                }}
+              >
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="all">Todos</option>
+              </select>
+            </label>
           </div>
         )}
       </header>
@@ -478,7 +498,7 @@ export function ProductsPage() {
             );
           })}
 
-          {sortedProducts.length > PAGE_SIZE && (
+          {pageSize !== Infinity && totalPages > 1 && (
             <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-between">
               <p className="text-sm text-base-content/60">
                 Página {currentPage} de {totalPages}

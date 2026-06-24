@@ -91,6 +91,7 @@ export function paginateProducts<T>(
   page: number,
   pageSize = PAGE_SIZE,
 ): T[] {
+  if (!isFinite(pageSize)) return products;
   const start = (page - 1) * pageSize;
   return products.slice(start, start + pageSize);
 }
