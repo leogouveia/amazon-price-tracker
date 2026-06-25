@@ -19,7 +19,8 @@
     "api:restart": "pm2 restart amazon-api",
     "api:delete": "pm2 delete amazon-api",
     "api:logs": "pm2 logs amazon-api",
-    "api:save": "pm2 save"
+    "api:save": "pm2 save",
+    "migrate:multi-user": "tsx src/migrate-multi-user.ts"
   },
   "keywords": [],
   "author": "",
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^25.9.1",
     "@typescript-eslint/parser": "^5.62.0",
     "daisyui": "^5.5.20",
@@ -42,6 +44,7 @@
   "dependencies": {
     "@hono/node-server": "^2.0.4",
     "@preact/preset-vite": "^2.10.5",
+    "bcryptjs": "^3.0.2",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "hono": "^4.12.23",

@@ -91,3 +91,26 @@ export function checkVariation(
 
     return `${variation.icon} <b>Variação:</b> ${variation.formattedDiff}\n`;
 }
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidLogin(login: string): boolean {
+    const trimmed = login.trim();
+    if (!trimmed) {
+        return false;
+    }
+
+    if (trimmed === "admin") {
+        return true;
+    }
+
+    return EMAIL_REGEX.test(trimmed);
+}
+
+export function normalizeLogin(login: string): string {
+    const trimmed = login.trim();
+    if (trimmed === "admin") {
+        return "admin";
+    }
+    return trimmed.toLowerCase();
+}

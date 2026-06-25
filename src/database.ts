@@ -2,20 +2,29 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { chromium, type Page } from "playwright";
+import type { User } from "./users";
 import { extractASIN, parsePrice, targetPriceForDb } from "./utils";
 
-const ACTIVE_PRODUCT = "deleted_at IS NULL";
+const ACTIVE_USER_ITEM = "ui.deleted_at IS NULL";
 
-export type Product = {
+export type CanonicalProduct = {
   id: number;
   asin: string;
   url: string;
   title: string | null;
   image_url: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type UserItem = {
+  id: number;
+  user_id: number;
+  product_id: number;
   target_price: number;
   created_at: string;
   updated_at: string;
-  deleted_at?: string | null;
+  deleted_at: string | null;
 };
 
 export class DuplicateProductError extends Error {
@@ -28,66 +37,155 @@ export class DuplicateProductError extends Error {
   }
 }
 
-export function findProductByAsin(asin: string): Product | undefined {
-  return db.prepare("SELECT * FROM products WHERE asin = ?").get(asin) as
-    | Product
-    | undefined;
-}
+export class ItemLimitReachedError extends Error {
+  readonly maxItems: number;
 
-export function isProductActive(product: Product): boolean {
-  return product.deleted_at == null;
+  constructor(maxItems: number) {
+    super(`Limite de ${maxItems} itens atingido`);
+    this.name = "ItemLimitReachedError";
+    this.maxItems = maxItems;
+  }
 }
 
 export const db: InstanceType<typeof Database> = new Database("prices.db");
 
-db.exec(`
-   CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+function tableExists(name: string): boolean {
+  const row = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+    )
+    .get(name) as { name: string } | undefined;
+  return row != null;
+}
 
-    asin TEXT NOT NULL UNIQUE,
-    url TEXT NOT NULL,
+function columnExists(table: string, column: string): boolean {
+  const columns = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as { name: string }[];
+  return columns.some((entry) => entry.name === column);
+}
 
-    title TEXT,
-    image_url TEXT,
+function ensureNewSchema(): void {
+  if (tableExists("products") && columnExists("products", "target_price")) {
+    throw new Error(
+      "Banco legado detectado. Execute: pnpm migrate:multi-user",
+    );
+  }
 
-    target_price REAL NOT NULL,
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      login TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('admin', 'user')),
+      max_items INTEGER,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT
+    );
 
-  CREATE TABLE IF NOT EXISTS price_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_login_active
+      ON users(login) WHERE deleted_at IS NULL;
 
-    product_id INTEGER NOT NULL,
+    CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      asin TEXT NOT NULL UNIQUE,
+      url TEXT NOT NULL,
+      title TEXT,
+      image_url TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
 
-    price REAL,
+    CREATE TABLE IF NOT EXISTS user_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      product_id INTEGER NOT NULL,
+      target_price REAL NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      deleted_at TEXT,
+      FOREIGN KEY(user_id) REFERENCES users(id),
+      FOREIGN KEY(product_id) REFERENCES products(id)
+    );
 
-    checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_items_user_product
+      ON user_items(user_id, product_id);
 
-    FOREIGN KEY(product_id)
-      REFERENCES products(id)
-      ON DELETE CASCADE
-  );
+    CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_item_id INTEGER NOT NULL,
+      price REAL,
+      checked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_item_id) REFERENCES user_items(id) ON DELETE CASCADE
+    );
 
-  CREATE INDEX IF NOT EXISTS idx_products_asin
-    ON products(asin);
+    CREATE INDEX IF NOT EXISTS idx_price_history_user_item
+      ON price_history(user_item_id);
 
-  CREATE INDEX IF NOT EXISTS idx_price_history_product
-    ON price_history(product_id);
+    CREATE INDEX IF NOT EXISTS idx_price_history_checked
+      ON price_history(checked_at);
 
-  CREATE INDEX IF NOT EXISTS idx_price_history_checked
-    ON price_history(checked_at);
-`);
+    CREATE INDEX IF NOT EXISTS idx_user_items_user
+      ON user_items(user_id);
 
-const columns = db.prepare("PRAGMA table_info(products)").all() as { name: string }[];
-if (!columns.some((c) => c.name === "deleted_at")) {
-  db.exec("ALTER TABLE products ADD COLUMN deleted_at TEXT");
+    CREATE INDEX IF NOT EXISTS idx_products_asin
+      ON products(asin);
+  `);
+}
+
+ensureNewSchema();
+
+export function findCanonicalProductByAsin(
+  asin: string,
+): CanonicalProduct | undefined {
+  return db.prepare("SELECT * FROM products WHERE asin = ?").get(asin) as
+    | CanonicalProduct
+    | undefined;
+}
+
+export function findUserItemByUserAndAsin(
+  userId: number,
+  asin: string,
+): (UserItem & CanonicalProduct) | undefined {
+  return db
+    .prepare(
+      `
+      SELECT
+        ui.id,
+        ui.user_id,
+        ui.product_id,
+        ui.target_price,
+        ui.created_at,
+        ui.updated_at,
+        ui.deleted_at,
+        p.asin,
+        p.url,
+        p.title,
+        p.image_url
+      FROM user_items ui
+      INNER JOIN products p ON p.id = ui.product_id
+      WHERE ui.user_id = ? AND p.asin = ?
+    `,
+    )
+    .get(userId, asin) as (UserItem & CanonicalProduct) | undefined;
+}
+
+export function isUserItemActive(item: UserItem): boolean {
+  return item.deleted_at == null;
 }
 
 async function handleAmazonContinueShopping(page: Page): Promise<boolean> {
   try {
-    const bodyText = await page.locator("body").textContent({ timeout: 5000 }).catch(() => null);
+    const bodyText = await page
+      .locator("body")
+      .textContent({ timeout: 5000 })
+      .catch(() => null);
     if (!bodyText) return false;
 
     if (!/continuar comprando/i.test(bodyText)) return false;
@@ -97,14 +195,18 @@ async function handleAmazonContinueShopping(page: Page): Promise<boolean> {
       .or(page.getByRole("link", { name: /continuar comprando/i }))
       .first();
 
-    const inputByValue = page.locator('input[type="submit"][value*="Continuar" i]').first();
+    const inputByValue = page
+      .locator('input[type="submit"][value*="Continuar" i]')
+      .first();
 
     const target = (await clickable.count()) > 0 ? clickable : inputByValue;
 
     if ((await target.count()) === 0) return false;
 
     await target.click();
-    await page.waitForLoadState("domcontentloaded", { timeout: 30000 }).catch(() => {});
+    await page
+      .waitForLoadState("domcontentloaded", { timeout: 30000 })
+      .catch(() => {});
 
     return true;
   } catch {
@@ -117,10 +219,18 @@ async function saveDebugFiles(page: Page, asin: string): Promise<void> {
     const logsDir = "logs";
     await mkdir(logsDir, { recursive: true });
     const timestamp = Date.now();
-    await page.screenshot({ path: join(logsDir, `screenshot_${asin}_${timestamp}.png`) });
+    await page.screenshot({
+      path: join(logsDir, `screenshot_${asin}_${timestamp}.png`),
+    });
     const html = await page.content();
-    await writeFile(join(logsDir, `html_${asin}_${timestamp}.html`), html, "utf-8");
-    console.log(`[scraper] Debug salvo em ${logsDir}/screenshot_${asin}_${timestamp}.png e html_${asin}_${timestamp}.html`);
+    await writeFile(
+      join(logsDir, `html_${asin}_${timestamp}.html`),
+      html,
+      "utf-8",
+    );
+    console.log(
+      `[scraper] Debug salvo em ${logsDir}/screenshot_${asin}_${timestamp}.png`,
+    );
   } catch (err) {
     console.warn("[scraper] Não foi possível salvar arquivos de debug:", err);
   }
@@ -139,7 +249,9 @@ export async function fetchProductInfo(url: string) {
 
     const detectedContinueShopping = await handleAmazonContinueShopping(page);
     if (detectedContinueShopping) {
-      console.log(`[scraper] Tela "Continuar comprando" detectada e tratada (asin=${asin})`);
+      console.log(
+        `[scraper] Tela "Continuar comprando" detectada (asin=${asin})`,
+      );
     }
 
     const title = await page
@@ -173,9 +285,7 @@ export async function fetchProductInfo(url: string) {
     const price = priceText ? parsePrice(priceText) : null;
 
     if (price === null) {
-      console.warn(
-        `[scraper] Preço não encontrado (asin=${asin}, url_final=${page.url()}, continuar_comprando=${detectedContinueShopping})`,
-      );
+      console.warn(`[scraper] Preço não encontrado (asin=${asin})`);
       await saveDebugFiles(page, asin);
     }
 
@@ -189,7 +299,51 @@ export async function fetchProductInfo(url: string) {
   }
 }
 
+function upsertCanonicalProduct(params: {
+  asin: string;
+  url: string;
+  title: string | null;
+  imageUrl: string | null;
+}): CanonicalProduct {
+  const existing = findCanonicalProductByAsin(params.asin);
+
+  if (existing) {
+    db.prepare(
+      `
+      UPDATE products
+      SET url = @url,
+          title = COALESCE(@title, title),
+          image_url = COALESCE(@imageUrl, image_url),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE asin = @asin
+    `,
+    ).run({
+      asin: params.asin,
+      url: params.url,
+      title: params.title,
+      imageUrl: params.imageUrl,
+    });
+    return findCanonicalProductByAsin(params.asin) as CanonicalProduct;
+  }
+
+  db.prepare(
+    `
+    INSERT INTO products (asin, url, title, image_url)
+    VALUES (@asin, @url, @title, @imageUrl)
+  `,
+  ).run({
+    asin: params.asin,
+    url: params.url,
+    title: params.title,
+    imageUrl: params.imageUrl,
+  });
+
+  return findCanonicalProductByAsin(params.asin) as CanonicalProduct;
+}
+
 export function addProduct(params: {
+  userId: number;
+  user: User;
   url: string;
   targetPrice?: number | null;
   title: string | null;
@@ -201,148 +355,195 @@ export function addProduct(params: {
     throw new Error("ASIN não encontrado na URL");
   }
 
-  const existing = findProductByAsin(asin);
+  const existingItem = findUserItemByUserAndAsin(params.userId, asin);
   const targetPrice = targetPriceForDb(params.targetPrice);
 
-  if (existing && isProductActive(existing)) {
+  if (existingItem && isUserItemActive(existingItem)) {
     throw new DuplicateProductError(asin);
   }
 
-  if (existing && !isProductActive(existing)) {
-    db.prepare(
-      `
-      UPDATE products
-      SET url = @url,
-          title = @title,
-          image_url = @imageUrl,
-          target_price = @targetPrice,
-          deleted_at = NULL,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE asin = @asin
-      `,
-    ).run({
-      asin,
-      url: params.url,
-      title: params.title,
-      imageUrl: params.imageUrl,
-      targetPrice,
-    });
-  } else {
-    db.prepare(
-      `
-      INSERT INTO products (asin, url, title, image_url, target_price)
-      VALUES (@asin, @url, @title, @imageUrl, @targetPrice)
-      `,
-    ).run({
-      asin,
-      url: params.url,
-      title: params.title,
-      imageUrl: params.imageUrl,
-      targetPrice,
-    });
+  const isReactivating =
+    existingItem != null && !isUserItemActive(existingItem);
+
+  if (
+    params.user.role !== "admin" &&
+    params.user.max_items != null &&
+    !isReactivating
+  ) {
+    const activeCount = db
+      .prepare(
+        "SELECT COUNT(*) AS count FROM user_items WHERE user_id = ? AND deleted_at IS NULL",
+      )
+      .get(params.userId) as { count: number };
+
+    if (activeCount.count >= params.user.max_items) {
+      throw new ItemLimitReachedError(params.user.max_items);
+    }
   }
 
-  const product = findProductByAsin(asin) as Product;
+  const product = upsertCanonicalProduct({
+    asin,
+    url: params.url,
+    title: params.title,
+    imageUrl: params.imageUrl,
+  });
+
+  let userItemId: number;
+
+  if (existingItem && !isUserItemActive(existingItem)) {
+    db.prepare(
+      `
+      UPDATE user_items
+      SET target_price = @targetPrice,
+          deleted_at = NULL,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = @id
+    `,
+    ).run({
+      id: existingItem.id,
+      targetPrice,
+    });
+    userItemId = existingItem.id;
+  } else {
+    const result = db
+      .prepare(
+        `
+        INSERT INTO user_items (user_id, product_id, target_price)
+        VALUES (@userId, @productId, @targetPrice)
+      `,
+      )
+      .run({
+        userId: params.userId,
+        productId: product.id,
+        targetPrice,
+      });
+    userItemId = Number(result.lastInsertRowid);
+  }
 
   savePriceHistory({
-    productId: product.id,
+    userItemId,
     price: params.initialPrice ?? null,
   });
 
-  return product;
+  return getUserItemSummaryById(userItemId) as ProductPriceSummary;
 }
 
-export function listProducts() {
-  return db
-    .prepare(`SELECT * FROM products WHERE ${ACTIVE_PRODUCT}`)
-    .all() as Product[];
-}
+export type MonitorUserItem = {
+  user_item_id: number;
+  user_id: number;
+  asin: string;
+  url: string;
+  title: string | null;
+  target_price: number;
+};
 
-export function getPreviousPrice(productId: string) {
+export function listActiveMonitorItems(): MonitorUserItem[] {
   return db
     .prepare(
       `
-        SELECT price, checked_at FROM price_history
-        WHERE product_id = ?
-            AND price IS NOT NULL
-        ORDER BY checked_at DESC
-        LIMIT 1 OFFSET 1
-        `,
+      SELECT
+        ui.id AS user_item_id,
+        ui.user_id,
+        p.asin,
+        p.url,
+        p.title,
+        ui.target_price
+      FROM user_items ui
+      INNER JOIN products p ON p.id = ui.product_id
+      WHERE ui.deleted_at IS NULL
+      ORDER BY p.asin, ui.id
+    `,
     )
-    .get(productId) as { price: number; checked_at: string } | undefined;
+    .all() as MonitorUserItem[];
+}
+
+export function getPreviousPrice(userItemId: number) {
+  return db
+    .prepare(
+      `
+      SELECT price, checked_at FROM price_history
+      WHERE user_item_id = ?
+        AND price IS NOT NULL
+      ORDER BY checked_at DESC
+      LIMIT 1 OFFSET 1
+    `,
+    )
+    .get(userItemId) as { price: number; checked_at: string } | undefined;
 }
 
 export function savePriceHistory(params: {
-  productId: number;
+  userItemId: number;
   price: number | null;
 }) {
   db.prepare(
     `
-    INSERT INTO price_history (product_id, price) 
-    VALUES (@productId, @price)
-        `,
-  ).run({
-    productId: params.productId,
-    price: params.price,
-  });
+    INSERT INTO price_history (user_item_id, price)
+    VALUES (@userItemId, @price)
+  `,
+  ).run(params);
 }
 
 const PRODUCT_PRICE_SUMMARY_SQL = `
       SELECT
-        p.id,
+        ui.id,
+        ui.user_id,
+        p.id AS product_id,
         p.asin,
         p.title,
         p.url,
         p.image_url,
-        p.target_price,
-        p.created_at,
-        p.updated_at,
+        ui.target_price,
+        ui.created_at,
+        ui.updated_at,
 
         latest.price AS last_price,
         latest.checked_at AS last_checked_at,
 
         (
           SELECT ph.price FROM price_history ph
-          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          WHERE ph.user_item_id = ui.id AND ph.price IS NOT NULL
           ORDER BY ph.checked_at DESC
           LIMIT 1 OFFSET 1
         ) AS previous_price,
         (
           SELECT ph.checked_at FROM price_history ph
-          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          WHERE ph.user_item_id = ui.id AND ph.price IS NOT NULL
           ORDER BY ph.checked_at DESC
           LIMIT 1 OFFSET 1
         ) AS previous_checked_at,
 
         (
           SELECT ph.price FROM price_history ph
-          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          WHERE ph.user_item_id = ui.id AND ph.price IS NOT NULL
           ORDER BY ph.price ASC, ph.checked_at ASC
           LIMIT 1
         ) AS lowest_price,
         (
           SELECT ph.checked_at FROM price_history ph
-          WHERE ph.product_id = p.id AND ph.price IS NOT NULL
+          WHERE ph.user_item_id = ui.id AND ph.price IS NOT NULL
           ORDER BY ph.price ASC, ph.checked_at ASC
           LIMIT 1
         ) AS lowest_checked_at
-      FROM products p
+      FROM user_items ui
+      INNER JOIN products p ON p.id = ui.product_id
       LEFT JOIN (
-        SELECT ph1.product_id, ph1.price, ph1.checked_at
+        SELECT ph1.user_item_id, ph1.price, ph1.checked_at
         FROM price_history ph1
         INNER JOIN (
-          SELECT product_id, MAX(checked_at) AS max_checked_at
+          SELECT user_item_id, MAX(checked_at) AS max_checked_at
           FROM price_history
-          GROUP BY product_id
+          GROUP BY user_item_id
         ) ph2
-          ON ph1.product_id = ph2.product_id
+          ON ph1.user_item_id = ph2.user_item_id
          AND ph1.checked_at = ph2.max_checked_at
       ) latest
-        ON latest.product_id = p.id
+        ON latest.user_item_id = ui.id
 `;
 
 export type ProductPriceSummary = {
   id: number;
+  user_id: number;
+  product_id: number;
   asin: string;
   title: string | null;
   url: string;
@@ -363,36 +564,55 @@ export type PriceHistoryEntry = {
   checked_at: string;
 };
 
-export function listProductsPriceHistory() {
+function getUserItemSummaryById(
+  userItemId: number,
+): ProductPriceSummary | undefined {
   return db
     .prepare(
       `
       ${PRODUCT_PRICE_SUMMARY_SQL}
-      WHERE p.deleted_at IS NULL
-      ORDER BY p.created_at DESC
+      WHERE ui.id = ?
     `,
     )
-    .all() as ProductPriceSummary[];
+    .get(userItemId) as ProductPriceSummary | undefined;
+}
+
+export function listProductsPriceHistory(userId: number) {
+  return db
+    .prepare(
+      `
+      ${PRODUCT_PRICE_SUMMARY_SQL}
+      WHERE ui.user_id = ? AND ${ACTIVE_USER_ITEM}
+      ORDER BY ui.created_at DESC
+    `,
+    )
+    .all(userId) as ProductPriceSummary[];
+}
+
+export function listProductsPriceHistoryForUser(userId: number) {
+  return listProductsPriceHistory(userId);
 }
 
 export function getProductDetailByAsin(
+  userId: number,
   asin: string,
 ): ProductPriceSummary | undefined {
   return db
     .prepare(
       `
       ${PRODUCT_PRICE_SUMMARY_SQL}
-      WHERE p.deleted_at IS NULL AND p.asin = ?
+      WHERE ui.user_id = ? AND p.asin = ? AND ${ACTIVE_USER_ITEM}
     `,
     )
-    .get(asin) as ProductPriceSummary | undefined;
+    .get(userId, asin) as ProductPriceSummary | undefined;
 }
 
 export function getProductPriceHistory(
+  userId: number,
   asin: string,
 ): PriceHistoryEntry[] | null {
-  const product = findProductByAsin(asin);
-  if (!product || !isProductActive(product)) {
+  const item = findUserItemByUserAndAsin(userId, asin);
+  if (!item || !isUserItemActive(item)) {
     return null;
   }
 
@@ -400,24 +620,64 @@ export function getProductPriceHistory(
     .prepare(
       `
       SELECT price, checked_at FROM price_history
-      WHERE product_id = ? AND price IS NOT NULL
+      WHERE user_item_id = ? AND price IS NOT NULL
       ORDER BY checked_at ASC
     `,
     )
-    .all(product.id) as PriceHistoryEntry[];
+    .all(item.id) as PriceHistoryEntry[];
 }
 
-export function deleteProduct(asin: string) {
+export function deleteProduct(userId: number, asin: string) {
   const result = db
     .prepare(
       `
-      UPDATE products
+      UPDATE user_items
       SET deleted_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
-      WHERE asin = ?
-        AND ${ACTIVE_PRODUCT}
-      `,
+      WHERE id IN (
+        SELECT ui.id
+        FROM user_items ui
+        INNER JOIN products p ON p.id = ui.product_id
+        WHERE ui.user_id = ? AND p.asin = ? AND ui.deleted_at IS NULL
+      )
+    `,
     )
-    .run(asin);
+    .run(userId, asin);
   return result.changes > 0;
+}
+
+export function deleteAllUserProducts(userId: number): number {
+  const result = db
+    .prepare(
+      `
+      UPDATE user_items
+      SET deleted_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = ? AND deleted_at IS NULL
+    `,
+    )
+    .run(userId);
+  return result.changes;
+}
+
+export function deleteUserProductByAsin(
+  userId: number,
+  asin: string,
+): boolean {
+  return deleteProduct(userId, asin);
+}
+
+export function isProductActiveForUser(userId: number, asin: string): boolean {
+  const item = findUserItemByUserAndAsin(userId, asin);
+  return item != null && isUserItemActive(item);
+}
+
+// Compat helpers used by preview endpoint
+export function findProductByAsin(asin: string): CanonicalProduct | undefined {
+  return findCanonicalProductByAsin(asin);
+}
+
+export function isProductActive(product: CanonicalProduct): boolean {
+  void product;
+  return true;
 }
