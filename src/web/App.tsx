@@ -1,6 +1,7 @@
 import { LocationProvider, Route, Router } from "preact-iso";
 import { AppNavbar } from "./components/AppNavbar";
 import { AuthProvider, useAuth } from "./lib/auth";
+import { AdminPage } from "./pages/AdminPage";
 import { LoginPage } from "./pages/LoginPage";
 import { NewProductPage } from "./pages/NewProductPage";
 import { ProductDetailPage } from "./pages/ProductDetailPage";
@@ -28,6 +29,7 @@ function AppShell() {
 
       <Router>
         <Route path="/" component={ProductsPage} />
+        <Route path="/admin" component={AdminPage} />
         <Route path="/products/:asin" component={ProductDetailPage} />
         <Route path="/new" component={NewProductPage} />
       </Router>

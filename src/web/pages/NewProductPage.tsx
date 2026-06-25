@@ -1,7 +1,8 @@
 import { useLocation } from "preact-iso";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { hasTargetPrice, parseTargetPriceInput } from "../../utils";
 import { apiFetch } from "../lib/api";
+import { useAuth } from "../lib/auth";
 
 type ProductPreview = {
   asin: string;
@@ -33,6 +34,7 @@ function formatTargetPrice(price: number | null) {
 
 export function NewProductPage() {
   const location = useLocation();
+  const { user } = useAuth();
   const [url, setUrl] = useState("");
   const [targetPrice, setTargetPrice] = useState("");
 
@@ -42,6 +44,19 @@ export function NewProductPage() {
   const [loadingSubmit, setLoadingSubmit] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
+
+  const atItemLimit =
+    user?.role === "user" &&
+    user.max_items != null &&
+    user.active_item_count >= user.max_items;
+
+  useEffect(() => {
+    if (atItemLimit) {
+      setError(
+        `Limite atingido: você já cadastrou ${user?.active_item_count} de ${user?.max_items} itens permitidos.`,
+      );
+    }
+  }, [atItemLimit, user?.active_item_count, user?.max_items]);
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -136,7 +151,7 @@ export function NewProductPage() {
                 placeholder="https://www.amazon.com.br/dp/..."
                 value={url}
                 onInput={(event) => setUrl(event.currentTarget.value)}
-                disabled={loadingPreview || loadingSubmit}
+                disabled={loadingPreview || loadingSubmit || atItemLimit}
                 required
               />
             </label>
@@ -154,7 +169,7 @@ export function NewProductPage() {
                 placeholder="Deixe em branco para apenas monitorar"
                 value={targetPrice}
                 onInput={(event) => setTargetPrice(event.currentTarget.value)}
-                disabled={loadingPreview || loadingSubmit}
+                disabled={loadingPreview || loadingSubmit || atItemLimit}
               />
             </label>
 
@@ -177,7 +192,7 @@ export function NewProductPage() {
               <button
                 type="submit"
                 className="btn btn-secondary"
-                disabled={loadingPreview || loadingSubmit}
+                disabled={loadingPreview || loadingSubmit || atItemLimit}
               >
                 {loadingPreview ? (
                   <>
@@ -261,7 +276,7 @@ export function NewProductPage() {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleSubmit}
-                disabled={loadingSubmit}
+                disabled={loadingSubmit || atItemLimit}
               >
                 {loadingSubmit ? (
                   <>

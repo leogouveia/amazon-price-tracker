@@ -5,40 +5,63 @@ import {
 import { useContext, useEffect, useState } from "preact/hooks";
 import { apiFetch } from "./api";
 
+export type AuthUser = {
+  id: number;
+  login: string;
+  role: "admin" | "user";
+  max_items: number | null;
+  active_item_count: number;
+};
+
 type AuthContextValue = {
+  user: AuthUser | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   loading: boolean;
-  login: (password: string) => Promise<string | null>;
+  login: (login: string, password: string) => Promise<string | null>;
   logout: () => Promise<void>;
   checkSession: () => Promise<boolean>;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ComponentChildren }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function checkSession(): Promise<boolean> {
     try {
       const response = await apiFetch("/api/auth/me");
-      const authenticated = response.ok;
-      setIsAuthenticated(authenticated);
-      return authenticated;
+      if (!response.ok) {
+        setUser(null);
+        return false;
+      }
+
+      const data = (await response.json()) as {
+        authenticated: boolean;
+        user: AuthUser;
+      };
+      setUser(data.user);
+      return true;
     } catch {
-      setIsAuthenticated(false);
+      setUser(null);
       return false;
     }
+  }
+
+  async function refreshUser(): Promise<void> {
+    await checkSession();
   }
 
   useEffect(() => {
     checkSession().finally(() => setLoading(false));
   }, []);
 
-  async function login(password: string): Promise<string | null> {
+  async function login(loginId: string, password: string): Promise<string | null> {
     const response = await apiFetch("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ login: loginId, password }),
     });
 
     if (!response.ok) {
@@ -46,18 +69,28 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
       return data.error ?? "Credenciais inválidas";
     }
 
-    setIsAuthenticated(true);
+    const data = (await response.json()) as { user: AuthUser };
+    setUser(data.user);
     return null;
   }
 
   async function logout(): Promise<void> {
     await apiFetch("/api/auth/logout", { method: "POST" });
-    setIsAuthenticated(false);
+    setUser(null);
   }
 
   return (
     <AuthContext.Provider
-      value={{ isAuthenticated, loading, login, logout, checkSession }}
+      value={{
+        user,
+        isAuthenticated: user != null,
+        isAdmin: user?.role === "admin",
+        loading,
+        login,
+        logout,
+        checkSession,
+        refreshUser,
+      }}
     >
       {children}
     </AuthContext.Provider>

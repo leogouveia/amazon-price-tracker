@@ -3,6 +3,7 @@ import "../style.css";
 import { formatDateTime, getPriceVariation, hasTargetPrice } from "../../utils";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { apiFetch } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import {
   getTotalPages,
   PAGE_SIZE,
@@ -68,7 +69,12 @@ function matchesSearch(product: Product, query: string): boolean {
 }
 
 export function ProductsPage() {
+  const { isAdmin, user, refreshUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
+  const [usage, setUsage] = useState<{ active: number; max: number | null }>({
+    active: 0,
+    max: null,
+  });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<ProductSortBy>("created_at");
@@ -83,8 +89,15 @@ export function ProductsPage() {
 
   async function loadProducts() {
     const response = await apiFetch("/api/products");
-    const data = await response.json();
-    setProducts(data);
+    const data = (await response.json()) as {
+      items?: Product[];
+      usage?: { active: number; max: number | null };
+    };
+    setProducts(data.items ?? []);
+    if (data.usage) {
+      setUsage(data.usage);
+    }
+    await refreshUser();
   }
 
   useEffect(() => {
@@ -113,6 +126,9 @@ export function ProductsPage() {
       };
 
       if (!response.ok) {
+        if (response.status === 403) {
+          throw new Error(data.error ?? "Acesso negado");
+        }
         throw new Error(data.error ?? "Erro ao atualizar preços");
       }
 
@@ -195,9 +211,14 @@ export function ProductsPage() {
                   ? `${sortedProducts.length} de ${products.length} produto${products.length === 1 ? "" : "s"}`
                   : `${products.length} produto${products.length === 1 ? "" : "s"}`}
             </p>
+            {!loading && user?.role === "user" && usage.max != null && (
+              <p className="mt-1 text-sm text-base-content/70">
+                Você cadastrou {usage.active} de {usage.max} itens permitidos
+              </p>
+            )}
           </div>
 
-          {!loading && products.length > 0 && (
+          {!loading && isAdmin && (
             <button
               type="button"
               className="btn btn-secondary shrink-0"
