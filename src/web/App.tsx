@@ -1,5 +1,6 @@
 import { LocationProvider, Route, Router } from "preact-iso";
 import { AppNavbar } from "./components/AppNavbar";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./lib/auth";
 import { AdminPage } from "./pages/AdminPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -43,7 +44,9 @@ export function App() {
       <AuthProvider>
         <main className="min-h-screen bg-base-200 p-6">
           <div className="mx-auto max-w-5xl">
-            <AppShell />
+            <ErrorBoundary>
+              <AppShell />
+            </ErrorBoundary>
           </div>
         </main>
       </AuthProvider>

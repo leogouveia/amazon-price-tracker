@@ -47,7 +47,16 @@ export class ItemLimitReachedError extends Error {
   }
 }
 
-export const db: InstanceType<typeof Database> = new Database("prices.db");
+export const db: InstanceType<typeof Database> = new Database(
+  process.env.DATABASE_PATH ?? "prices.db",
+);
+
+db.pragma("journal_mode = WAL");
+db.pragma("foreign_keys = ON");
+db.pragma("cache_size = -4000");
+db.pragma("synchronous = NORMAL");
+db.pragma("busy_timeout = 5000");
+db.pragma("temp_store = MEMORY");
 
 function tableExists(name: string): boolean {
   const row = db
@@ -128,14 +137,23 @@ function ensureNewSchema(): void {
     CREATE INDEX IF NOT EXISTS idx_price_history_user_item
       ON price_history(user_item_id);
 
-    CREATE INDEX IF NOT EXISTS idx_price_history_checked
-      ON price_history(checked_at);
-
     CREATE INDEX IF NOT EXISTS idx_user_items_user
       ON user_items(user_id);
 
-    CREATE INDEX IF NOT EXISTS idx_products_asin
-      ON products(asin);
+    DROP INDEX IF EXISTS idx_products_asin;
+    DROP INDEX IF EXISTS idx_price_history_checked;
+
+    CREATE INDEX IF NOT EXISTS idx_price_history_user_item_checked
+      ON price_history(user_item_id, checked_at DESC)
+      WHERE price IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_price_history_user_item_price
+      ON price_history(user_item_id, price ASC, checked_at ASC)
+      WHERE price IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_user_items_active_by_user
+      ON user_items(user_id)
+      WHERE deleted_at IS NULL;
   `);
 }
 
@@ -305,31 +323,15 @@ function upsertCanonicalProduct(params: {
   title: string | null;
   imageUrl: string | null;
 }): CanonicalProduct {
-  const existing = findCanonicalProductByAsin(params.asin);
-
-  if (existing) {
-    db.prepare(
-      `
-      UPDATE products
-      SET url = @url,
-          title = COALESCE(@title, title),
-          image_url = COALESCE(@imageUrl, image_url),
-          updated_at = CURRENT_TIMESTAMP
-      WHERE asin = @asin
-    `,
-    ).run({
-      asin: params.asin,
-      url: params.url,
-      title: params.title,
-      imageUrl: params.imageUrl,
-    });
-    return findCanonicalProductByAsin(params.asin) as CanonicalProduct;
-  }
-
   db.prepare(
     `
     INSERT INTO products (asin, url, title, image_url)
     VALUES (@asin, @url, @title, @imageUrl)
+    ON CONFLICT(asin) DO UPDATE SET
+      url = excluded.url,
+      title = COALESCE(excluded.title, products.title),
+      image_url = COALESCE(excluded.image_url, products.image_url),
+      updated_at = CURRENT_TIMESTAMP
   `,
   ).run({
     asin: params.asin,
@@ -355,77 +357,79 @@ export function addProduct(params: {
     throw new Error("ASIN não encontrado na URL");
   }
 
-  const existingItem = findUserItemByUserAndAsin(params.userId, asin);
-  const targetPrice = targetPriceForDb(params.targetPrice);
+  return db.transaction(() => {
+    const existingItem = findUserItemByUserAndAsin(params.userId, asin);
+    const targetPrice = targetPriceForDb(params.targetPrice);
 
-  if (existingItem && isUserItemActive(existingItem)) {
-    throw new DuplicateProductError(asin);
-  }
-
-  const isReactivating =
-    existingItem != null && !isUserItemActive(existingItem);
-
-  if (
-    params.user.role !== "admin" &&
-    params.user.max_items != null &&
-    !isReactivating
-  ) {
-    const activeCount = db
-      .prepare(
-        "SELECT COUNT(*) AS count FROM user_items WHERE user_id = ? AND deleted_at IS NULL",
-      )
-      .get(params.userId) as { count: number };
-
-    if (activeCount.count >= params.user.max_items) {
-      throw new ItemLimitReachedError(params.user.max_items);
+    if (existingItem && isUserItemActive(existingItem)) {
+      throw new DuplicateProductError(asin);
     }
-  }
 
-  const product = upsertCanonicalProduct({
-    asin,
-    url: params.url,
-    title: params.title,
-    imageUrl: params.imageUrl,
-  });
+    const isReactivating =
+      existingItem != null && !isUserItemActive(existingItem);
 
-  let userItemId: number;
+    if (
+      params.user.role !== "admin" &&
+      params.user.max_items != null &&
+      !isReactivating
+    ) {
+      const activeCount = db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM user_items WHERE user_id = ? AND deleted_at IS NULL",
+        )
+        .get(params.userId) as { count: number };
 
-  if (existingItem && !isUserItemActive(existingItem)) {
-    db.prepare(
-      `
-      UPDATE user_items
-      SET target_price = @targetPrice,
-          deleted_at = NULL,
-          updated_at = CURRENT_TIMESTAMP
-      WHERE id = @id
-    `,
-    ).run({
-      id: existingItem.id,
-      targetPrice,
+      if (activeCount.count >= params.user.max_items) {
+        throw new ItemLimitReachedError(params.user.max_items);
+      }
+    }
+
+    const product = upsertCanonicalProduct({
+      asin,
+      url: params.url,
+      title: params.title,
+      imageUrl: params.imageUrl,
     });
-    userItemId = existingItem.id;
-  } else {
-    const result = db
-      .prepare(
+
+    let userItemId: number;
+
+    if (existingItem && !isUserItemActive(existingItem)) {
+      db.prepare(
         `
-        INSERT INTO user_items (user_id, product_id, target_price)
-        VALUES (@userId, @productId, @targetPrice)
+        UPDATE user_items
+        SET target_price = @targetPrice,
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = @id
       `,
-      )
-      .run({
-        userId: params.userId,
-        productId: product.id,
+      ).run({
+        id: existingItem.id,
         targetPrice,
       });
-    userItemId = Number(result.lastInsertRowid);
-  }
+      userItemId = existingItem.id;
+    } else {
+      const result = db
+        .prepare(
+          `
+          INSERT INTO user_items (user_id, product_id, target_price)
+          VALUES (@userId, @productId, @targetPrice)
+        `,
+        )
+        .run({
+          userId: params.userId,
+          productId: product.id,
+          targetPrice,
+        });
+      userItemId = Number(result.lastInsertRowid);
+    }
 
-  savePriceHistory({
-    userItemId,
-    price: params.initialPrice ?? null,
-  });
+    savePriceHistory({
+      userItemId,
+      price: params.initialPrice ?? null,
+    });
 
-  return getUserItemSummaryById(userItemId) as ProductPriceSummary;
+    return getUserItemSummaryById(userItemId) as ProductPriceSummary;
+  })();
 }
 
 export type MonitorUserItem = {

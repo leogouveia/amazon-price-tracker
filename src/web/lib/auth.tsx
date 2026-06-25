@@ -22,6 +22,7 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   checkSession: () => Promise<boolean>;
   refreshUser: () => Promise<void>;
+  updateActiveItemCount: (count: number) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -52,6 +53,10 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
 
   async function refreshUser(): Promise<void> {
     await checkSession();
+  }
+
+  function updateActiveItemCount(count: number): void {
+    setUser((prev) => (prev ? { ...prev, active_item_count: count } : prev));
   }
 
   useEffect(() => {
@@ -90,6 +95,7 @@ export function AuthProvider({ children }: { children: ComponentChildren }) {
         logout,
         checkSession,
         refreshUser,
+        updateActiveItemCount,
       }}
     >
       {children}

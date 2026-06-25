@@ -1,8 +1,9 @@
 import { useLocation } from "preact-iso";
 import { useEffect, useState } from "preact/hooks";
-import { hasTargetPrice, parseTargetPriceInput } from "../../utils";
+import { parseTargetPriceInput } from "../../utils";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { formatPrice, formatTargetPrice } from "../lib/formatters";
 
 type ProductPreview = {
   asin: string;
@@ -13,24 +14,6 @@ type ProductPreview = {
   currentPrice: number | null;
   willReactivate?: boolean;
 };
-
-function formatPrice(price: number | null) {
-  if (price === null) return "Não encontrado";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function formatTargetPrice(price: number | null) {
-  if (!hasTargetPrice(price)) return "Não definido";
-
-  return price!.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
 
 export function NewProductPage() {
   const location = useLocation();
@@ -64,7 +47,6 @@ export function NewProductPage() {
     try {
       setError(null);
       setLoadingPreview(true);
-      setError(null);
       setPreview(null);
 
       const response = await apiFetch("/api/products/preview", {
@@ -99,7 +81,10 @@ export function NewProductPage() {
 
       const response = await apiFetch("/api/products", {
         method: "POST",
-        body: JSON.stringify(preview),
+        body: JSON.stringify({
+          url: preview.url,
+          targetPrice: preview.targetPrice,
+        }),
       });
 
       const data = await response.json();

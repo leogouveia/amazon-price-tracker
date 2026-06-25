@@ -1,9 +1,14 @@
 import { useEffect, useState } from "preact/hooks";
 import "../style.css";
-import { formatDateTime, getPriceVariation, hasTargetPrice } from "../../utils";
+import { formatDateTime, getPriceVariation } from "../../utils";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import {
+  formatPrice,
+  formatTargetPrice,
+  variationColorClass,
+} from "../lib/formatters";
 import {
   getTotalPages,
   PAGE_SIZE,
@@ -30,32 +35,8 @@ type Product = {
   lowest_checked_at: string | null;
 };
 
-function formatPrice(price: number | null) {
-  if (price === null) return "Não encontrado";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function formatTargetPrice(price: number) {
-  if (!hasTargetPrice(price)) return "Não definido";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
 function formatDate(date: string | null) {
   return formatDateTime(date);
-}
-
-function variationColorClass(diff: number): string {
-  if (diff > 0) return "text-error";
-  if (diff < 0) return "text-success";
-  return "text-warning";
 }
 
 function matchesSearch(product: Product, query: string): boolean {
@@ -69,7 +50,7 @@ function matchesSearch(product: Product, query: string): boolean {
 }
 
 export function ProductsPage() {
-  const { isAdmin, user, refreshUser } = useAuth();
+  const { isAdmin, user, updateActiveItemCount } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [usage, setUsage] = useState<{ active: number; max: number | null }>({
     active: 0,
@@ -96,8 +77,8 @@ export function ProductsPage() {
     setProducts(data.items ?? []);
     if (data.usage) {
       setUsage(data.usage);
+      updateActiveItemCount(data.usage.active);
     }
-    await refreshUser();
   }
 
   useEffect(() => {
@@ -325,7 +306,7 @@ export function ProductsPage() {
 
       {loading ? (
         <div className="grid gap-4">
-          {[...Array(3)].map((_, index) => (
+          {[...Array(PAGE_SIZE)].map((_, index) => (
             <div key={index} className="card bg-base-100 shadow-md">
               <div className="card-body">
                 <div className="flex flex-col gap-4 sm:flex-row">

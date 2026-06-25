@@ -1,9 +1,14 @@
 import { useEffect, useState } from "preact/hooks";
 import { useRoute } from "preact-iso";
 import "../style.css";
-import { formatDateTime, getPriceVariation, hasTargetPrice } from "../../utils";
+import { formatDateTime, getPriceVariation } from "../../utils";
 import { PriceHistoryChart } from "../components/PriceHistoryChart";
 import { apiFetch } from "../lib/api";
+import {
+  formatPrice,
+  formatTargetPrice,
+  variationColorClass,
+} from "../lib/formatters";
 
 type ProductDetail = {
   id: number;
@@ -26,30 +31,6 @@ type PriceHistoryEntry = {
   price: number;
   checked_at: string;
 };
-
-function formatPrice(price: number | null) {
-  if (price === null) return "Não encontrado";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function formatTargetPrice(price: number) {
-  if (!hasTargetPrice(price)) return "Não definido";
-
-  return price.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function variationColorClass(diff: number): string {
-  if (diff > 0) return "text-error";
-  if (diff < 0) return "text-success";
-  return "text-warning";
-}
 
 export function ProductDetailPage() {
   const route = useRoute();

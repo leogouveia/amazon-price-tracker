@@ -143,17 +143,44 @@ export function authenticateUser(login: string, password: string): User | undefi
 }
 
 export function listActiveUsersWithStats(): UserPublic[] {
-  const users = db
+  const rows = db
     .prepare(
       `
-      SELECT * FROM users
-      WHERE ${ACTIVE_USER} AND role = 'user'
-      ORDER BY created_at DESC
+      SELECT
+        u.id,
+        u.login,
+        u.role,
+        u.max_items,
+        u.created_at,
+        u.updated_at,
+        COUNT(ui.id) AS active_item_count
+      FROM users u
+      LEFT JOIN user_items ui
+        ON ui.user_id = u.id AND ui.deleted_at IS NULL
+      WHERE u.deleted_at IS NULL AND u.role = 'user'
+      GROUP BY u.id
+      ORDER BY u.created_at DESC
     `,
     )
-    .all() as User[];
+    .all() as Array<{
+      id: number;
+      login: string;
+      role: UserRole;
+      max_items: number | null;
+      created_at: string;
+      updated_at: string;
+      active_item_count: number;
+    }>;
 
-  return users.map(toUserPublic);
+  return rows.map((row) => ({
+    id: row.id,
+    login: row.login,
+    role: row.role,
+    max_items: row.max_items,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    active_item_count: row.active_item_count,
+  }));
 }
 
 export function createUser(params: {

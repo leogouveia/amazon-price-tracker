@@ -60,12 +60,37 @@ export function AdminPage() {
     title: string | null;
   } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [passwordCopied, setPasswordCopied] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !isAdmin) {
       location.route("/");
     }
   }, [authLoading, isAdmin, location]);
+
+  useEffect(() => {
+    if (!success) return;
+
+    const timer = setTimeout(() => setSuccess(null), 8000);
+    return () => clearTimeout(timer);
+  }, [success]);
+
+  async function handleCopyPassword() {
+    if (!generatedPassword) return;
+
+    try {
+      await navigator.clipboard.writeText(generatedPassword);
+      setPasswordCopied(true);
+    } catch {
+      setError("Não foi possível copiar a senha.");
+    }
+  }
+
+  function handleDismissPassword() {
+    setGeneratedPassword(null);
+    setReactivationMessage(null);
+    setPasswordCopied(false);
+  }
 
   async function loadUsers() {
     setLoading(true);
@@ -98,6 +123,7 @@ export function AdminPage() {
     setSuccess(null);
     setGeneratedPassword(null);
     setReactivationMessage(null);
+    setPasswordCopied(false);
 
     try {
       const response = await apiFetch("/api/admin/users", {
@@ -315,24 +341,56 @@ export function AdminPage() {
 
       {error && (
         <div className="alert alert-error">
-          <span>{error}</span>
+          <span className="flex-1">{error}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setError(null)}
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {success && (
         <div className="alert alert-success">
-          <span>{success}</span>
+          <span className="flex-1">{success}</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setSuccess(null)}
+            aria-label="Fechar"
+          >
+            ✕
+          </button>
         </div>
       )}
 
       {generatedPassword && (
         <div className="alert alert-warning">
-          <div>
+          <div className="flex-1">
             <p className="font-semibold">Senha gerada (copie agora):</p>
             <p className="mt-1 font-mono text-lg">{generatedPassword}</p>
             {reactivationMessage && (
               <p className="mt-2 text-sm">{reactivationMessage}</p>
             )}
+          </div>
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={() => void handleCopyPassword()}
+            >
+              {passwordCopied ? "Copiado!" : "Copiar senha"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={handleDismissPassword}
+            >
+              Já copiei
+            </button>
           </div>
         </div>
       )}

@@ -47,7 +47,7 @@ import {
 } from "./users";
 import { extractASIN, isValidLogin, normalizeLogin, resolveTargetPrice } from "./utils";
 
-const app = new Hono();
+export const app = new Hono();
 
 const defaultCorsOrigins =
   process.env.NODE_ENV === "production"
@@ -251,23 +251,18 @@ app.post("/api/products", async (c) => {
   const body = (await c.req.json()) as {
     url: string;
     targetPrice?: number | null;
-    title?: string | null;
-    imageUrl?: string | null;
-    currentPrice?: number | null;
   };
 
-  const hasPreviewData =
-    body.title !== undefined ||
-    body.imageUrl !== undefined ||
-    body.currentPrice !== undefined;
+  if (!body.url) {
+    return c.json({ error: "URL é obrigatória" }, 400);
+  }
 
-  const info = hasPreviewData
-    ? {
-        title: body.title ?? null,
-        imageUrl: body.imageUrl ?? null,
-        price: body.currentPrice ?? null,
-      }
-    : await fetchProductInfo(body.url);
+  const asin = extractASIN(body.url);
+  if (!asin) {
+    return c.json({ error: "URL inválida" }, 400);
+  }
+
+  const info = await fetchProductInfo(body.url);
 
   try {
     const product = addProduct({
@@ -528,8 +523,10 @@ app.delete("/api/admin/users/:id/products/:asin", (c) => {
   return c.json({ ok: true });
 });
 
-serve({
-  fetch: app.fetch,
-  port: 3000,
-});
-console.log("🌐 Web rodando em http://localhost:3000");
+if (!process.env.VITEST) {
+  serve({
+    fetch: app.fetch,
+    port: 3000,
+  });
+  console.log("🌐 Web rodando em http://localhost:3000");
+}
