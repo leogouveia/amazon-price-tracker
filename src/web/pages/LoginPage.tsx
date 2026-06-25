@@ -1,9 +1,11 @@
 import { useState } from "preact/hooks";
 import { BrandLogo } from "../components/BrandLogo";
 import { useAuth } from "../lib/auth";
+import { isValidLogin } from "../../utils";
 
 export function LoginPage() {
   const { login } = useAuth();
+  const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -11,11 +13,16 @@ export function LoginPage() {
   async function handleSubmit(e: Event) {
     e.preventDefault();
 
+    if (!isValidLogin(loginId)) {
+      setError("Informe um e-mail válido ou admin");
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
 
-      const loginError = await login(password);
+      const loginError = await login(loginId, password);
       if (loginError) {
         setError(loginError);
       }
@@ -37,10 +44,27 @@ export function LoginPage() {
           <h1 className="card-title text-2xl">Entrar</h1>
 
           <p className="text-sm text-base-content/60">
-            Informe a senha para acessar o monitor de preços.
+            Use seu e-mail ou <code>admin</code> e sua senha.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-4 grid gap-4">
+            <label className="form-control">
+              <div className="label">
+                <span className="label-text">E-mail ou admin</span>
+              </div>
+
+              <input
+                type="text"
+                className="input input-bordered"
+                placeholder="usuario@email.com ou admin"
+                value={loginId}
+                onInput={(event) => setLoginId(event.currentTarget.value)}
+                disabled={loading}
+                required
+                autoComplete="username"
+              />
+            </label>
+
             <label className="form-control">
               <div className="label">
                 <span className="label-text">Senha</span>

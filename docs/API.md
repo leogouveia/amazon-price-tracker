@@ -104,7 +104,7 @@ Headers permitidos: `Content-Type`, `Authorization`, `x-api-token`, `x-session-t
 
 | Variável | Obrigatória | Descrição |
 |----------|-------------|-----------|
-| `APP_PASSWORD` | Sim | Senha do login |
+| `APP_PASSWORD` | Sim (migração) | Senha inicial do usuário `admin` (hash criado na migração) |
 | `SESSION_SECRET` | Sim | Assinatura HMAC do token de sessão |
 | `API_TOKEN` | Recomendada | Token fixo para `x-api-token` |
 | `TELEGRAM_BOT_TOKEN` | Para monitor | Bot Telegram |
@@ -143,12 +143,13 @@ Público. Verifica se a API está no ar.
 
 #### `POST /api/auth/login`
 
-Público. Valida a senha e inicia sessão.
+Público. Valida identificador e senha e inicia sessão.
 
 **Corpo**
 
 ```json
 {
+  "login": "admin",
   "password": "sua-senha",
   "client": "mobile"
 }
@@ -156,7 +157,8 @@ Público. Valida a senha e inicia sessão.
 
 | Campo | Tipo | Obrigatório | Descrição |
 |-------|------|-------------|-----------|
-| `password` | string | Sim | Igual a `APP_PASSWORD` |
+| `login` | string | Sim | E-mail válido ou `admin` |
+| `password` | string | Sim | Senha do usuário |
 | `client` | string | Não | Use `"mobile"` para receber `token` no JSON |
 
 **Header opcional:** `X-Client: mobile` (equivalente a `client: "mobile"`).
@@ -164,7 +166,16 @@ Público. Valida a senha e inicia sessão.
 **Resposta 200 (web)**
 
 ```json
-{ "authenticated": true }
+{
+  "authenticated": true,
+  "user": {
+    "id": 1,
+    "login": "admin",
+    "role": "admin",
+    "max_items": null,
+    "active_item_count": 3
+  }
+}
 ```
 
 + cookie `session`.
@@ -225,30 +236,21 @@ Aceita cookie, Bearer, `x-session-token` ou `x-api-token`.
 
 #### `GET /api/products`
 
-Lista produtos ativos com resumo de preços.
+Lista itens ativos do usuário logado.
 
-**Resposta 200** — array de `ProductPriceSummary`:
+**Resposta 200**
 
 ```json
-[
-  {
-    "id": 1,
-    "asin": "B0XXXXXXXX",
-    "title": "Nome do produto",
-    "url": "https://www.amazon.com.br/dp/B0XXXXXXXX",
-    "image_url": "https://...",
-    "target_price": 99.9,
-    "created_at": "2026-01-15 10:00:00",
-    "updated_at": "2026-01-20 12:00:00",
-    "last_price": 89.9,
-    "last_checked_at": "2026-01-20 12:00:00",
-    "previous_price": 95.0,
-    "previous_checked_at": "2026-01-19 08:00:00",
-    "lowest_price": 85.0,
-    "lowest_checked_at": "2026-01-10 14:00:00"
+{
+  "items": [ "...ProductPriceSummary..." ],
+  "usage": {
+    "active": 3,
+    "max": 10
   }
-]
+}
 ```
+
+`usage.max` é `null` para admin (sem limite).
 
 ---
 
@@ -316,7 +318,9 @@ Cadastra produto. Se `title` / `imageUrl` / `currentPrice` forem enviados, não 
 
 **Resposta 200** — objeto `Product` (campos do banco: `id`, `asin`, `url`, `title`, `image_url`, `target_price`, `created_at`, `updated_at`).
 
-**Erro 409** — produto já monitorado:
+**Erro 403** — limite de itens atingido (usuário comum).
+
+**Erro 409** — produto já monitorado pelo usuário.
 
 ```json
 {
@@ -388,7 +392,7 @@ Remove produto (soft delete: `deleted_at` preenchido).
 
 #### `POST /api/monitor/run`
 
-Executa verificação de preços de **todos** os produtos ativos (Playwright + histórico + mensagem Telegram consolidada).
+Executa verificação de preços de **todos** os itens ativos. **Somente admin** (ou `x-api-token`).
 
 Apenas uma execução por vez.
 
@@ -414,6 +418,8 @@ Apenas uma execução por vez.
 | `errors` | Falhas por produto |
 | `durationMs` | Duração total em milissegundos |
 
+**Erro 403** — usuário comum.
+
 **Erro 409** — monitor já em execução:
 
 ```json
@@ -424,25 +430,19 @@ Apenas uma execução por vez.
 
 ---
 
-### Preços (legado)
+### Admin (somente `role: admin` ou `x-api-token`)
 
-#### `GET /api/prices`
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/api/admin/users` | Lista usuários ativos com contagem de itens |
+| POST | `/api/admin/users` | Cria ou reativa usuário (`email`, `maxItems`) |
+| PATCH | `/api/admin/users/:id` | Atualiza `maxItems` |
+| DELETE | `/api/admin/users/:id` | Soft delete do usuário |
+| GET | `/api/admin/users/:id/products` | Itens ativos do usuário |
+| DELETE | `/api/admin/users/:id/products` | Soft delete de todos os itens |
+| DELETE | `/api/admin/users/:id/products/:asin` | Soft delete de um item |
 
-Últimos 100 registros brutos da tabela `price_history` (sem join com produtos). Mantido para compatibilidade.
-
-**Resposta 200**
-
-```json
-[
-  {
-    "product_id": 1,
-    "title": null,
-    "price": 89.9,
-    "url": null,
-    "checked_at": "2026-01-20 12:00:00"
-  }
-]
-```
+**POST /api/admin/users** — resposta inclui `generatedPassword` (exibir uma vez). Se `reactivated: true`, o e-mail existia com soft delete; itens antigos não são restaurados.
 
 ---
 
@@ -454,7 +454,7 @@ Apenas uma execução por vez.
 # Login
 curl -c cookies.txt -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"password":"sua-senha"}'
+  -d '{"login":"admin","password":"sua-senha"}'
 
 # Listar produtos
 curl -b cookies.txt http://localhost:3000/api/products
@@ -467,7 +467,7 @@ curl -b cookies.txt http://localhost:3000/api/products
 TOKEN=$(curl -s -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -H "X-Client: mobile" \
-  -d '{"password":"sua-senha"}' | jq -r .token)
+  -d '{"login":"admin","password":"sua-senha"}' | jq -r .token)
 
 # Listar produtos
 curl -H "Authorization: Bearer $TOKEN" \
@@ -490,6 +490,7 @@ curl -H "x-api-token: $API_TOKEN" \
 | 200 | Sucesso |
 | 400 | Validação (URL inválida, etc.) |
 | 401 | Não autenticado |
+| 403 | Sem permissão (admin) ou limite de itens |
 | 404 | Recurso não encontrado |
 | 409 | Conflito (duplicado, monitor em execução) |
 | 500 | Erro interno / scrape / Telegram |

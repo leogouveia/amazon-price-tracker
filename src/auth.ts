@@ -5,9 +5,16 @@ import {
   getCookie,
   setCookie,
 } from "hono/cookie";
+import { findUserById, type User, type UserPublic, toUserPublic } from "./users";
 
 export const SESSION_COOKIE_NAME = "session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7;
+
+export type SessionPayload = {
+  sub: number;
+  role: "admin" | "user";
+  exp: number;
+};
 
 function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
@@ -21,18 +28,20 @@ function sign(value: string): string {
   return createHmac("sha256", getSessionSecret()).update(value).digest("base64url");
 }
 
-export function createSessionToken(): string {
-  const payload = JSON.stringify({
+export function createSessionToken(user: User): string {
+  const payload: SessionPayload = {
+    sub: user.id,
+    role: user.role,
     exp: Date.now() + SESSION_MAX_AGE_SECONDS * 1000,
-  });
-  const encoded = Buffer.from(payload).toString("base64url");
+  };
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${encoded}.${sign(encoded)}`;
 }
 
-export function verifySessionToken(token: string): boolean {
+export function parseSessionToken(token: string): SessionPayload | null {
   const [encoded, signature] = token.split(".");
   if (!encoded || !signature) {
-    return false;
+    return null;
   }
 
   const expected = sign(encoded);
@@ -40,38 +49,31 @@ export function verifySessionToken(token: string): boolean {
   const expectedBuffer = Buffer.from(expected);
 
   if (sigBuffer.length !== expectedBuffer.length) {
-    return false;
+    return null;
   }
 
   if (!timingSafeEqual(sigBuffer, expectedBuffer)) {
-    return false;
+    return null;
   }
 
   try {
     const payload = JSON.parse(
       Buffer.from(encoded, "base64url").toString("utf8"),
-    ) as { exp?: number };
+    ) as SessionPayload;
 
-    return typeof payload.exp === "number" && payload.exp > Date.now();
+    if (
+      typeof payload.sub !== "number" ||
+      (payload.role !== "admin" && payload.role !== "user") ||
+      typeof payload.exp !== "number" ||
+      payload.exp <= Date.now()
+    ) {
+      return null;
+    }
+
+    return payload;
   } catch {
-    return false;
+    return null;
   }
-}
-
-export function validateAppPassword(password: string): boolean {
-  const expected = process.env.APP_PASSWORD;
-  if (!expected) {
-    throw new Error("APP_PASSWORD não configurado");
-  }
-
-  const passwordBuffer = Buffer.from(password);
-  const expectedBuffer = Buffer.from(expected);
-
-  if (passwordBuffer.length !== expectedBuffer.length) {
-    return false;
-  }
-
-  return timingSafeEqual(passwordBuffer, expectedBuffer);
 }
 
 export function sessionCookieOptions() {
@@ -105,29 +107,23 @@ function readBearerToken(c: Context): string | undefined {
   return token.length > 0 ? token : undefined;
 }
 
-/** Sessão via cookie (web), Bearer ou x-session-token (mobile / híbrido). */
 export function getSessionTokenFromRequest(c: Context): string | undefined {
   const cookieToken = getCookie(c, SESSION_COOKIE_NAME);
-  if (cookieToken && verifySessionToken(cookieToken)) {
+  if (cookieToken && parseSessionToken(cookieToken)) {
     return cookieToken;
   }
 
   const bearerToken = readBearerToken(c);
-  if (bearerToken && verifySessionToken(bearerToken)) {
+  if (bearerToken && parseSessionToken(bearerToken)) {
     return bearerToken;
   }
 
   const headerToken = c.req.header("x-session-token");
-  if (headerToken && verifySessionToken(headerToken)) {
+  if (headerToken && parseSessionToken(headerToken)) {
     return headerToken;
   }
 
   return undefined;
-}
-
-/** @deprecated Use getSessionTokenFromRequest */
-export function getSessionFromRequest(c: Context): string | undefined {
-  return getSessionTokenFromRequest(c);
 }
 
 export function isApiTokenRequest(c: Context): boolean {
@@ -136,15 +132,70 @@ export function isApiTokenRequest(c: Context): boolean {
   return Boolean(expectedToken && apiToken === expectedToken);
 }
 
+export function getCurrentUser(c: Context): User | null {
+  if (isApiTokenRequest(c)) {
+    return null;
+  }
+
+  const token = getSessionTokenFromRequest(c);
+  if (!token) {
+    return null;
+  }
+
+  const payload = parseSessionToken(token);
+  if (!payload) {
+    return null;
+  }
+
+  const user = findUserById(payload.sub);
+  if (!user || user.deleted_at != null) {
+    return null;
+  }
+
+  if (user.role !== payload.role) {
+    return null;
+  }
+
+  return user;
+}
+
+export function getCurrentUserPublic(c: Context): UserPublic | null {
+  const user = getCurrentUser(c);
+  if (!user) {
+    return null;
+  }
+  return toUserPublic(user);
+}
+
 export function isAuthenticatedRequest(c: Context): boolean {
-  if (getSessionTokenFromRequest(c)) {
+  if (getCurrentUser(c)) {
+    return true;
+  }
+  return isApiTokenRequest(c);
+}
+
+export function isAdminRequest(c: Context): boolean {
+  if (isApiTokenRequest(c)) {
     return true;
   }
 
-  return isApiTokenRequest(c);
+  const user = getCurrentUser(c);
+  return user?.role === "admin";
 }
 
 export function isMobileClient(c: Context): boolean {
   const client = c.req.header("x-client")?.toLowerCase();
   return client === "mobile";
+}
+
+export function requireUser(c: Context): User {
+  const user = getCurrentUser(c);
+  if (!user) {
+    throw new Error("UNAUTHORIZED");
+  }
+  return user;
+}
+
+export function serializeUserResponse(user: User) {
+  return toUserPublic(user);
 }

@@ -1,14 +1,14 @@
 import {
   fetchProductInfo,
   getPreviousPrice,
-  listProducts,
+  listActiveMonitorItems,
   savePriceHistory,
 } from "./database";
 import { sendTelegramMessage } from "./telegram";
 import { checkVariation, formatDateTime, hasTargetPrice } from "./utils";
 
 export type MonitorProductError = {
-  productId: number;
+  userItemId: number;
   asin: string;
   message: string;
 };
@@ -101,48 +101,50 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
   let checked = 0;
 
   try {
-    const products = await listProducts();
+    const items = listActiveMonitorItems();
+    const groupedByAsin = new Map<string, typeof items>();
 
-    for (const product of products) {
+    for (const item of items) {
+      const group = groupedByAsin.get(item.asin) ?? [];
+      group.push(item);
+      groupedByAsin.set(item.asin, group);
+    }
+
+    for (const [asin, group] of groupedByAsin) {
+      const sample = group[0]!;
+
       try {
-        console.log(`\n🔎 Verificando: ${product.id}`);
+        console.log(`\n🔎 Verificando ASIN: ${asin} (${group.length} item(ns))`);
 
-        const info = await fetchProductInfo(product.url);
-        const title = info.title ?? product.title;
+        const info = await fetchProductInfo(sample.url);
+        const title = info.title ?? sample.title;
         const price = info.price;
 
-        savePriceHistory({
-          productId: product.id,
-          price,
-        });
+        for (const item of group) {
+          savePriceHistory({
+            userItemId: item.user_item_id,
+            price,
+          });
+        }
 
-        const previous = getPreviousPrice(String(product.id));
-
-        console.log("Título:", title ?? "não encontrado");
-        console.log("Preço número:", price ?? "não encontrado");
-        console.log(
-          "Preço anterior:",
-          previous
-            ? `${previous.price} (${formatDateTime(previous.checked_at)})`
-            : "não encontrado",
-        );
+        const previous = getPreviousPrice(sample.user_item_id);
 
         const reachedTarget =
           price !== null &&
-          hasTargetPrice(product.target_price) &&
-          price <= product.target_price;
+          hasTargetPrice(sample.target_price) &&
+          price <= sample.target_price;
 
         const formattedPreviousPrice = previous
           ? `${formatCurrency(previous.price)} (${formatDateTime(previous.checked_at)})`
           : "Primeira verificação";
 
-        const targetLine = hasTargetPrice(product.target_price)
-          ? `🎯 Alvo: ${formatCurrency(product.target_price)}`
+        const targetLine = hasTargetPrice(sample.target_price)
+          ? `🎯 Alvo: ${formatCurrency(sample.target_price)}`
           : "";
 
         reports.push({
-          title: title?.trim() ?? String(product.id),
-          url: product.url,
+          title: title?.trim() ?? asin,
+          url: sample.url,
           formattedPrice: formatCurrency(price),
           formattedPreviousPrice,
           variation: checkVariation(price, previous?.price) ?? "",
@@ -150,14 +152,16 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
           reachedTarget,
         });
 
-        checked += 1;
+        checked += group.length;
       } catch (error) {
-        errors.push({
-          productId: product.id,
-          asin: product.asin,
-          message: error instanceof Error ? error.message : "Erro desconhecido",
-        });
-        console.error(`Erro ao verificar produto ${product.asin}:`, error);
+        for (const item of group) {
+          errors.push({
+            userItemId: item.user_item_id,
+            asin: item.asin,
+            message: error instanceof Error ? error.message : "Erro desconhecido",
+          });
+        }
+        console.error(`Erro ao verificar ASIN ${asin}:`, error);
       }
     }
 
