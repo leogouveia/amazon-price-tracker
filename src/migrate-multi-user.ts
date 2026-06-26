@@ -289,7 +289,9 @@ function runMigration(): void {
 
     console.log("Migração multi-usuário concluída com sucesso.");
   } catch (error) {
-    db.exec("ROLLBACK");
+    if (db.inTransaction) {
+      db.exec("ROLLBACK");
+    }
     console.error("Falha na migração:", error);
     process.exit(1);
   } finally {
