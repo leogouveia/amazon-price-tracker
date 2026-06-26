@@ -54,7 +54,7 @@ O resumo de preços agora é enviado **por usuário**: cada usuário recebe apen
 Registrar o webhook do Telegram (uma única vez após o deploy):
 
 ```bash
-curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=https://tracker2.leogouveia.com/api/telegram/webhook/$TELEGRAM_WEBHOOK_SECRET"
+curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/setWebhook?url=https://tracker.leogouveia.com/api/telegram/webhook/$TELEGRAM_WEBHOOK_SECRET"
 curl "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/getWebhookInfo"
 ```
 

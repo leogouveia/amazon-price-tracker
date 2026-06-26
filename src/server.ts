@@ -59,7 +59,7 @@ export const app = new Hono();
 
 const defaultCorsOrigins =
   process.env.NODE_ENV === "production"
-    ? ["https://tracker2.leogouveia.com"]
+    ? ["https://tracker.leogouveia.com"]
     : [
         "http://localhost:5173",
         "http://127.0.0.1:5173",

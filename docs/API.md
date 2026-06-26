@@ -6,7 +6,7 @@ API REST para monitorar preços de produtos na Amazon. Base URL padrão em desen
 http://localhost:3000
 ```
 
-Em produção, use o domínio configurado (ex.: `https://tracker2.leogouveia.com` via proxy reverso).
+Em produção, use o domínio configurado (ex.: `https://tracker.leogouveia.com` via proxy reverso).
 
 Todas as rotas da API estão sob o prefixo `/api`.
 
@@ -82,7 +82,7 @@ Aplicado em `/api/*` para clientes browser/WebView.
 
 | Ambiente | Origens padrão |
 |----------|----------------|
-| Produção | `https://tracker2.leogouveia.com` |
+| Produção | `https://tracker.leogouveia.com` |
 | Desenvolvimento | `localhost` / `127.0.0.1` nas portas 5173, 8081, 8082 |
 
 Também aceitas automaticamente: `capacitor://*`, `ionic://*`, `http(s)://localhost`.

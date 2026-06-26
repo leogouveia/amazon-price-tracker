@@ -53,7 +53,7 @@ echo "      Migração concluída."
 
 echo ""
 echo "[3/3] Registrando webhook do Telegram..."
-WEBHOOK_URL="https://tracker2.leogouveia.com/api/telegram/webhook/${TELEGRAM_WEBHOOK_SECRET}"
+WEBHOOK_URL="https://tracker.leogouveia.com/api/telegram/webhook/${TELEGRAM_WEBHOOK_SECRET}"
 RESPONSE=$(curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook?url=${WEBHOOK_URL}")
 echo "      Resposta: $RESPONSE"
 
