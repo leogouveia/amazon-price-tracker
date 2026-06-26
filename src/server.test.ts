@@ -389,3 +389,104 @@ describe("POST /api/monitor/run", () => {
     expect(res.status).toBe(200);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Telegram
+// ---------------------------------------------------------------------------
+describe("Telegram — rotas autenticadas", () => {
+  it("GET /api/telegram/status exige sessão (não é liberado pelo prefixo do webhook)", async () => {
+    const res = await req("GET", "/api/telegram/status");
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /api/telegram/status retorna connected:false para usuário sem conexão", async () => {
+    const user = createTestUser("user@example.com", 5);
+    const res = await req("GET", "/api/telegram/status", {
+      headers: sessionHeaderFor(user),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { connected: boolean };
+    expect(body.connected).toBe(false);
+  });
+
+  it("POST /api/telegram/link-token retorna 503 sem TELEGRAM_BOT_USERNAME", async () => {
+    delete process.env.TELEGRAM_BOT_USERNAME;
+    const user = createTestUser("user@example.com", 5);
+    const res = await req("POST", "/api/telegram/link-token", {
+      headers: sessionHeaderFor(user),
+    });
+    expect(res.status).toBe(503);
+  });
+
+  it("POST /api/telegram/link-token retorna URL do bot quando configurado", async () => {
+    process.env.TELEGRAM_BOT_USERNAME = "meu_bot";
+    const user = createTestUser("user@example.com", 5);
+    const res = await req("POST", "/api/telegram/link-token", {
+      headers: sessionHeaderFor(user),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { telegramBotUrl: string };
+    expect(body.telegramBotUrl).toContain("https://t.me/meu_bot?start=");
+    delete process.env.TELEGRAM_BOT_USERNAME;
+  });
+
+  it("POST /api/telegram/test retorna 400 sem conexão ativa", async () => {
+    const user = createTestUser("user@example.com", 5);
+    const res = await req("POST", "/api/telegram/test", {
+      headers: sessionHeaderFor(user),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("POST /api/telegram/disconnect é idempotente", async () => {
+    const user = createTestUser("user@example.com", 5);
+    const res = await req("POST", "/api/telegram/disconnect", {
+      headers: sessionHeaderFor(user),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { connected: boolean };
+    expect(body.connected).toBe(false);
+  });
+});
+
+describe("Telegram — webhook público", () => {
+  it("retorna 403 para segredo inválido", async () => {
+    process.env.TELEGRAM_WEBHOOK_SECRET = "segredo-correto";
+    const res = await req("POST", "/api/telegram/webhook/segredo-errado", {
+      body: { message: { text: "oi", chat: { id: 1 } } },
+    });
+    expect(res.status).toBe(403);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  });
+
+  it("retorna 200 para segredo válido mesmo em mensagem desconhecida", async () => {
+    process.env.TELEGRAM_WEBHOOK_SECRET = "segredo-correto";
+    const res = await req("POST", "/api/telegram/webhook/segredo-correto", {
+      body: { message: { text: "qualquer coisa", chat: { id: 1, type: "private" } } },
+    });
+    expect(res.status).toBe(200);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  });
+
+  it("vincula usuário via /start TOKEN e responde 200", async () => {
+    process.env.TELEGRAM_WEBHOOK_SECRET = "segredo-correto";
+    const user = createTestUser("user@example.com", 5);
+    const { createLinkToken } = await import("./telegram-store");
+    const { token } = createLinkToken(user.id);
+
+    const res = await req("POST", "/api/telegram/webhook/segredo-correto", {
+      body: {
+        message: {
+          text: `/start ${token}`,
+          chat: { id: 555, type: "private" },
+          from: { id: 555, username: "fulano" },
+        },
+      },
+    });
+    expect(res.status).toBe(200);
+
+    const { getConnectionStatusForUser } = await import("./telegram-store");
+    expect(getConnectionStatusForUser(user.id).connected).toBe(true);
+    delete process.env.TELEGRAM_WEBHOOK_SECRET;
+  });
+});

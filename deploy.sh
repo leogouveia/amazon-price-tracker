@@ -16,6 +16,9 @@ git pull
 echo "📦 Instalando dependências..."
 pnpm install --frozen-lockfile
 
+echo "🗄️ Rodando migrações..."
+pnpm migrate:multi-user
+
 echo "🏗️ Buildando frontend..."
 pnpm build:web
 

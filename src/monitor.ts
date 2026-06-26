@@ -4,7 +4,8 @@ import {
   listActiveMonitorItems,
   savePriceHistory,
 } from "./database";
-import { sendTelegramMessage } from "./telegram";
+import { htmlEscape, sendTelegramMessage } from "./telegram";
+import { getSendableConnectionByUserId } from "./telegram-store";
 import { checkVariation, formatDateTime, hasTargetPrice } from "./utils";
 
 export type MonitorProductError = {
@@ -65,7 +66,10 @@ function buildMonitorTelegramMessage(
 
   for (const entry of entries) {
     const status = entry.reachedTarget ? "🔥" : "👀";
-    lines.push(`${status} <b>${entry.title}</b>`);
+    lines.push(`${status} <b>${htmlEscape(entry.title)}</b>`);
+    if (entry.reachedTarget) {
+      lines.push("🔥 <b>Alvo atingido!</b>");
+    }
     lines.push(
       `💰 ${entry.formattedPrice} | 🕒 ${entry.formattedPreviousPrice}`,
     );
@@ -75,7 +79,7 @@ function buildMonitorTelegramMessage(
     if (entry.targetLine) {
       lines.push(entry.targetLine.trimEnd());
     }
-    lines.push(`🔗 <a href="${entry.url}">Abrir produto</a>`);
+    lines.push(`🔗 <a href="${htmlEscape(entry.url)}">Abrir produto</a>`);
     lines.push("");
   }
 
@@ -97,7 +101,10 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
   monitorRunning = true;
   const startedAt = Date.now();
   const errors: MonitorProductError[] = [];
-  const reports: ProductReport[] = [];
+  // Relatórios e erros são acumulados por usuário para que cada um receba
+  // apenas os próprios itens — nunca um resumo global com itens de terceiros.
+  const reportsByUser = new Map<number, ProductReport[]>();
+  const errorsByUser = new Map<number, MonitorProductError[]>();
   let checked = 0;
 
   try {
@@ -116,8 +123,9 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
       try {
         console.log(`\n🔎 Verificando ASIN: ${asin} (${group.length} item(ns))`);
 
+        // Scraping deduplicado por ASIN: uma busca, fan-out por usuário.
         const info = await fetchProductInfo(sample.url);
-        const title = info.title ?? sample.title;
+        const title = info.title?.trim() ?? sample.title ?? asin;
         const price = info.price;
 
         for (const item of group) {
@@ -125,49 +133,55 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
             userItemId: item.user_item_id,
             price,
           });
+
+          const previous = getPreviousPrice(item.user_item_id);
+
+          const reachedTarget =
+            price !== null &&
+            hasTargetPrice(item.target_price) &&
+            price <= item.target_price;
+
+          const formattedPreviousPrice = previous
+            ? `${formatCurrency(previous.price)} (${formatDateTime(previous.checked_at)})`
+            : "Primeira verificação";
+
+          const targetLine = hasTargetPrice(item.target_price)
+            ? `🎯 Alvo: ${formatCurrency(item.target_price)}`
+            : "";
+
+          const userReports = reportsByUser.get(item.user_id) ?? [];
+          userReports.push({
+            title,
+            url: sample.url,
+            formattedPrice: formatCurrency(price),
+            formattedPreviousPrice,
+            variation: checkVariation(price, previous?.price) ?? "",
+            targetLine,
+            reachedTarget,
+          });
+          reportsByUser.set(item.user_id, userReports);
         }
-
-        const previous = getPreviousPrice(sample.user_item_id);
-
-        const reachedTarget =
-          price !== null &&
-          hasTargetPrice(sample.target_price) &&
-          price <= sample.target_price;
-
-        const formattedPreviousPrice = previous
-          ? `${formatCurrency(previous.price)} (${formatDateTime(previous.checked_at)})`
-          : "Primeira verificação";
-
-        const targetLine = hasTargetPrice(sample.target_price)
-          ? `🎯 Alvo: ${formatCurrency(sample.target_price)}`
-          : "";
-
-        reports.push({
-          title: title?.trim() ?? asin,
-          url: sample.url,
-          formattedPrice: formatCurrency(price),
-          formattedPreviousPrice,
-          variation: checkVariation(price, previous?.price) ?? "",
-          targetLine,
-          reachedTarget,
-        });
 
         checked += group.length;
       } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Erro desconhecido";
         for (const item of group) {
-          errors.push({
+          const entry = {
             userItemId: item.user_item_id,
             asin: item.asin,
-            message: error instanceof Error ? error.message : "Erro desconhecido",
-          });
+            message,
+          };
+          errors.push(entry);
+          const userErrors = errorsByUser.get(item.user_id) ?? [];
+          userErrors.push(entry);
+          errorsByUser.set(item.user_id, userErrors);
         }
         console.error(`Erro ao verificar ASIN ${asin}:`, error);
       }
     }
 
-    if (reports.length > 0 || errors.length > 0) {
-      await sendTelegramMessage(buildMonitorTelegramMessage(reports, errors));
-    }
+    await sendPerUserSummaries(reportsByUser, errorsByUser);
 
     return {
       checked,
@@ -176,5 +190,43 @@ export async function runPriceMonitor(): Promise<MonitorResult> {
     };
   } finally {
     monitorRunning = false;
+  }
+}
+
+// Envia um resumo por usuário, somente para conexões aptas (ativas, habilitadas
+// e de usuário não excluído). Usuários sem Telegram são ignorados sem erro.
+async function sendPerUserSummaries(
+  reportsByUser: Map<number, ProductReport[]>,
+  errorsByUser: Map<number, MonitorProductError[]>,
+): Promise<void> {
+  const userIds = new Set<number>([
+    ...reportsByUser.keys(),
+    ...errorsByUser.keys(),
+  ]);
+
+  for (const userId of userIds) {
+    const connection = getSendableConnectionByUserId(userId);
+    if (!connection) {
+      continue;
+    }
+
+    const userReports = reportsByUser.get(userId) ?? [];
+    const userErrors = errorsByUser.get(userId) ?? [];
+
+    if (userReports.length === 0 && userErrors.length === 0) {
+      continue;
+    }
+
+    try {
+      await sendTelegramMessage(
+        connection.chat_id,
+        buildMonitorTelegramMessage(userReports, userErrors),
+      );
+    } catch (error) {
+      console.error(
+        `Falha ao enviar resumo Telegram para usuário ${userId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
   }
 }

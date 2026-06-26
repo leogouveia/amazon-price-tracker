@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { clearAllTables, createTestAdmin, createTestUser } from "./__tests__/setup";
+import {
+  clearAllTables,
+  createTestAdmin,
+  createTestUser,
+  createTelegramConnection,
+} from "./__tests__/setup";
 import { addProduct } from "./database";
 
 vi.mock("./database", async (importOriginal) => {
@@ -10,9 +15,14 @@ vi.mock("./database", async (importOriginal) => {
   };
 });
 
-vi.mock("./telegram", () => ({
-  sendTelegramMessage: vi.fn().mockResolvedValue(undefined),
-}));
+// Mantém htmlEscape real; mocka apenas o envio de rede.
+vi.mock("./telegram", async (importOriginal) => {
+  const mod = await importOriginal<typeof import("./telegram")>();
+  return {
+    ...mod,
+    sendTelegramMessage: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import { runPriceMonitor, isMonitorRunning, MonitorAlreadyRunningError } from "./monitor";
 import { fetchProductInfo } from "./database";
@@ -99,12 +109,73 @@ describe("runPriceMonitor", () => {
     expect(vi.mocked(sendTelegramMessage)).not.toHaveBeenCalled();
   });
 
-  it("envia mensagem Telegram quando há relatórios", async () => {
+  it("envia mensagem Telegram quando há relatórios e conexão ativa", async () => {
     const admin = createTestAdmin();
+    createTelegramConnection(admin.id, "admin-chat");
     addProduct({ userId: admin.id, user: admin, url: SAMPLE_URL, title: "Prod", imageUrl: null });
 
     await runPriceMonitor();
     expect(vi.mocked(sendTelegramMessage)).toHaveBeenCalledOnce();
+    const [chatId] = vi.mocked(sendTelegramMessage).mock.calls[0]!;
+    expect(chatId).toBe("admin-chat");
+  });
+
+  it("não envia Telegram para usuário sem conexão (sem erro)", async () => {
+    const admin = createTestAdmin();
+    addProduct({ userId: admin.id, user: admin, url: SAMPLE_URL, title: "Prod", imageUrl: null });
+
+    const result = await runPriceMonitor();
+    expect(result.checked).toBe(1);
+    expect(vi.mocked(sendTelegramMessage)).not.toHaveBeenCalled();
+  });
+
+  it("não envia para conexão desabilitada", async () => {
+    const admin = createTestAdmin();
+    createTelegramConnection(admin.id, "admin-chat", { enabled: 0 });
+    addProduct({ userId: admin.id, user: admin, url: SAMPLE_URL, title: "Prod", imageUrl: null });
+
+    await runPriceMonitor();
+    expect(vi.mocked(sendTelegramMessage)).not.toHaveBeenCalled();
+  });
+
+  it("CRUX: cada usuário recebe apenas os próprios itens, sem vazamento", async () => {
+    const userA = createTestUser("a@example.com", 5);
+    const userB = createTestUser("b@example.com", 5);
+    createTelegramConnection(userA.id, "chat-a");
+    createTelegramConnection(userB.id, "chat-b");
+
+    vi.mocked(fetchProductInfo).mockImplementation(async (url: string) => {
+      if (url === SAMPLE_URL) return { title: "Produto X", imageUrl: null, price: 100 };
+      return { title: "Produto Y", imageUrl: null, price: 200 };
+    });
+
+    addProduct({ userId: userA.id, user: userA, url: SAMPLE_URL, title: "X", imageUrl: null });
+    addProduct({ userId: userB.id, user: userB, url: SAMPLE_URL_2, title: "Y", imageUrl: null });
+
+    await runPriceMonitor();
+
+    const calls = vi.mocked(sendTelegramMessage).mock.calls;
+    expect(calls).toHaveLength(2);
+
+    const msgA = calls.find(([chat]) => chat === "chat-a")?.[1] ?? "";
+    const msgB = calls.find(([chat]) => chat === "chat-b")?.[1] ?? "";
+
+    expect(msgA).toContain("Produto X");
+    expect(msgA).not.toContain("Produto Y");
+    expect(msgB).toContain("Produto Y");
+    expect(msgB).not.toContain("Produto X");
+  });
+
+  it("usuário soft-deletado com conexão ativa não recebe", async () => {
+    const user = createTestUser("gone@example.com", 5);
+    createTelegramConnection(user.id, "chat-gone");
+    addProduct({ userId: user.id, user, url: SAMPLE_URL, title: "Prod", imageUrl: null });
+
+    const { db } = await import("./database");
+    db.prepare("UPDATE users SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?").run(user.id);
+
+    await runPriceMonitor();
+    expect(vi.mocked(sendTelegramMessage)).not.toHaveBeenCalled();
   });
 });
 

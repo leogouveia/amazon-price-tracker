@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import "../style.css";
 import { formatDateTime, getPriceVariation } from "../../utils";
 import { DeleteProductDialog } from "../components/DeleteProductDialog";
+import { TelegramSection } from "../components/TelegramSection";
 import { apiFetch } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import {
@@ -303,6 +304,8 @@ export function ProductsPage() {
           <span>{monitorMessage}</span>
         </div>
       )}
+
+      <TelegramSection />
 
       {loading ? (
         <div className="grid gap-4">

@@ -10,6 +10,7 @@ import {
   isAdminRequest,
   isAuthenticatedRequest,
   isMobileClient,
+  safeCompare,
   serializeUserResponse,
   setSessionCookie,
 } from "./auth";
@@ -31,6 +32,13 @@ import {
   MonitorAlreadyRunningError,
   runPriceMonitor,
 } from "./monitor";
+import { handleTelegramUpdate, sendTelegramMessage } from "./telegram";
+import {
+  createLinkToken,
+  disconnectTelegramForUser,
+  getActiveConnectionByUserId,
+  getConnectionStatusForUser,
+} from "./telegram-store";
 import {
   authenticateUser,
   createUser,
@@ -104,8 +112,16 @@ const publicRoutes = [
   "/api/auth/me",
 ];
 
+// Apenas o webhook do Telegram é público (protegido por segredo no path).
+// A barra final é intencional: NÃO liberar /status, /link-token, /disconnect, /test.
+const TELEGRAM_WEBHOOK_PREFIX = "/api/telegram/webhook/";
+
+function isPublicRoute(path: string): boolean {
+  return publicRoutes.includes(path) || path.startsWith(TELEGRAM_WEBHOOK_PREFIX);
+}
+
 app.use("/api/*", async (c, next) => {
-  if (publicRoutes.includes(c.req.path)) {
+  if (isPublicRoute(c.req.path)) {
     return next();
   }
 
@@ -378,6 +394,108 @@ app.post("/api/monitor/run", async (c) => {
       500,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Telegram — conexão por usuário
+// ---------------------------------------------------------------------------
+
+app.get("/api/telegram/status", (c) => {
+  const user = getCurrentUser(c);
+  if (!user) {
+    return c.json({ error: "Não autorizado" }, 401);
+  }
+  return c.json(getConnectionStatusForUser(user.id));
+});
+
+app.post("/api/telegram/link-token", (c) => {
+  const user = getCurrentUser(c);
+  if (!user) {
+    return c.json({ error: "Não autorizado" }, 401);
+  }
+
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME;
+  if (!botUsername) {
+    return c.json(
+      {
+        error:
+          "Integração com Telegram indisponível (TELEGRAM_BOT_USERNAME não configurado).",
+      },
+      503,
+    );
+  }
+
+  const { token, expiresAt } = createLinkToken(user.id);
+
+  return c.json({
+    telegramBotUrl: `https://t.me/${botUsername}?start=${token}`,
+    expiresAt,
+  });
+});
+
+app.post("/api/telegram/disconnect", (c) => {
+  const user = getCurrentUser(c);
+  if (!user) {
+    return c.json({ error: "Não autorizado" }, 401);
+  }
+
+  // Idempotente: desconectar sem conexão ativa devolve o status atual (false).
+  disconnectTelegramForUser(user.id);
+  return c.json(getConnectionStatusForUser(user.id));
+});
+
+app.post("/api/telegram/test", async (c) => {
+  const user = getCurrentUser(c);
+  if (!user) {
+    return c.json({ error: "Não autorizado" }, 401);
+  }
+
+  const connection = getActiveConnectionByUserId(user.id);
+  if (!connection) {
+    return c.json({ error: "Nenhum Telegram conectado." }, 400);
+  }
+  if (connection.enabled !== 1) {
+    return c.json({ error: "A conexão do Telegram está desabilitada." }, 400);
+  }
+
+  try {
+    await sendTelegramMessage(
+      connection.chat_id,
+      "🔔 <b>Teste de notificação do Amazon Price Tracker.</b>\nSe você recebeu esta mensagem, sua conta está conectada corretamente.",
+    );
+  } catch (error) {
+    console.error("Falha no teste de Telegram:", error);
+    return c.json({ error: "Falha ao enviar mensagem de teste." }, 502);
+  }
+
+  return c.json({ ok: true });
+});
+
+// Rota pública (sem guard de auth), protegida pelo segredo no path.
+app.post("/api/telegram/webhook/:secret", async (c) => {
+  const expectedSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  const providedSecret = c.req.param("secret");
+
+  if (!expectedSecret || !safeCompare(providedSecret, expectedSecret)) {
+    return c.json({ error: "Não autorizado" }, 403);
+  }
+
+  // A partir daqui sempre respondemos 200: um erro faria o Telegram reenviar
+  // e eventualmente desabilitar o webhook.
+  let update: unknown;
+  try {
+    update = await c.req.json();
+  } catch {
+    return c.json({ ok: true });
+  }
+
+  try {
+    await handleTelegramUpdate(update as Parameters<typeof handleTelegramUpdate>[0]);
+  } catch (error) {
+    console.error("Erro ao processar webhook do Telegram:", error);
+  }
+
+  return c.json({ ok: true });
 });
 
 app.get("/api/admin/users", (c) => {

@@ -29,6 +29,11 @@ export type UserPublic = {
   active_item_count: number;
 };
 
+export type AdminUserListItem = UserPublic & {
+  telegram_connected: boolean;
+  telegram_username: string | null;
+};
+
 export class UserDuplicateActiveError extends Error {
   readonly login: string;
 
@@ -142,7 +147,9 @@ export function authenticateUser(login: string, password: string): User | undefi
   return verifyPassword(password, user.password_hash) ? user : undefined;
 }
 
-export function listActiveUsersWithStats(): UserPublic[] {
+export function listActiveUsersWithStats(): AdminUserListItem[] {
+  // Status de Telegram via subconsultas correlacionadas para não inflar o
+  // COUNT(ui.id) do GROUP BY com linhas de conexão.
   const rows = db
     .prepare(
       `
@@ -153,7 +160,20 @@ export function listActiveUsersWithStats(): UserPublic[] {
         u.max_items,
         u.created_at,
         u.updated_at,
-        COUNT(ui.id) AS active_item_count
+        COUNT(ui.id) AS active_item_count,
+        (
+          SELECT tc.telegram_username
+          FROM telegram_connections tc
+          WHERE tc.user_id = u.id AND tc.unlinked_at IS NULL
+          LIMIT 1
+        ) AS telegram_username,
+        EXISTS (
+          SELECT 1
+          FROM telegram_connections tc
+          WHERE tc.user_id = u.id
+            AND tc.unlinked_at IS NULL
+            AND tc.enabled = 1
+        ) AS telegram_connected
       FROM users u
       LEFT JOIN user_items ui
         ON ui.user_id = u.id AND ui.deleted_at IS NULL
@@ -170,6 +190,8 @@ export function listActiveUsersWithStats(): UserPublic[] {
       created_at: string;
       updated_at: string;
       active_item_count: number;
+      telegram_username: string | null;
+      telegram_connected: number;
     }>;
 
   return rows.map((row) => ({
@@ -180,6 +202,8 @@ export function listActiveUsersWithStats(): UserPublic[] {
     created_at: row.created_at,
     updated_at: row.updated_at,
     active_item_count: row.active_item_count,
+    telegram_connected: row.telegram_connected === 1,
+    telegram_username: row.telegram_username,
   }));
 }
 

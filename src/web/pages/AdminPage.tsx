@@ -12,6 +12,8 @@ type AdminUser = {
   active_item_count: number;
   created_at: string;
   updated_at: string;
+  telegram_connected: boolean;
+  telegram_username: string | null;
 };
 
 type AdminProduct = {
@@ -460,6 +462,7 @@ export function AdminPage() {
                     <th>E-mail</th>
                     <th>Itens ativos</th>
                     <th>Limite</th>
+                    <th>Telegram</th>
                     <th className="text-right">Ações</th>
                   </tr>
                 </thead>
@@ -469,6 +472,19 @@ export function AdminPage() {
                       <td>{user.login}</td>
                       <td>{user.active_item_count}</td>
                       <td>{user.max_items}</td>
+                      <td>
+                        {user.telegram_connected ? (
+                          <span className="badge badge-success badge-sm">
+                            {user.telegram_username
+                              ? `@${user.telegram_username}`
+                              : "conectado"}
+                          </span>
+                        ) : (
+                          <span className="badge badge-ghost badge-sm">
+                            não conectado
+                          </span>
+                        )}
+                      </td>
                       <td>
                         <div className="flex flex-wrap justify-end gap-2">
                           <button
