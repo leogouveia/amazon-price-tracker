@@ -132,6 +132,17 @@ export function isApiTokenRequest(c: Context): boolean {
   return Boolean(expectedToken && apiToken === expectedToken);
 }
 
+// Comparação em tempo constante com guarda de tamanho (timingSafeEqual lança
+// se os buffers tiverem comprimentos diferentes).
+export function safeCompare(a: string, b: string): boolean {
+  const aBuffer = Buffer.from(a);
+  const bBuffer = Buffer.from(b);
+  if (aBuffer.length !== bBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(aBuffer, bBuffer);
+}
+
 export function getCurrentUser(c: Context): User | null {
   if (isApiTokenRequest(c)) {
     return null;

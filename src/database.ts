@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { chromium, type Page } from "playwright";
+import { TELEGRAM_SCHEMA_SQL } from "./telegram-schema";
 import type { User } from "./users";
 import { extractASIN, parsePrice, targetPriceForDb } from "./utils";
 
@@ -155,6 +156,8 @@ function ensureNewSchema(): void {
       ON user_items(user_id)
       WHERE deleted_at IS NULL;
   `);
+
+  db.exec(TELEGRAM_SCHEMA_SQL);
 }
 
 ensureNewSchema();

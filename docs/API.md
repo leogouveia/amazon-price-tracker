@@ -62,6 +62,7 @@ Configure `API_TOKEN` no `.env` do servidor. **Não** embuta esse valor em apps 
 | POST | `/api/auth/login` |
 | POST | `/api/auth/logout` |
 | GET | `/api/auth/me` |
+| POST | `/api/telegram/webhook/:secret` (validada pelo segredo no path) |
 
 `GET /api/auth/me` retorna `401` se não houver sessão/token válido.
 
@@ -107,8 +108,10 @@ Headers permitidos: `Content-Type`, `Authorization`, `x-api-token`, `x-session-t
 | `APP_PASSWORD` | Sim (migração) | Senha inicial do usuário `admin` (hash criado na migração) |
 | `SESSION_SECRET` | Sim | Assinatura HMAC do token de sessão |
 | `API_TOKEN` | Recomendada | Token fixo para `x-api-token` |
-| `TELEGRAM_BOT_TOKEN` | Para monitor | Bot Telegram |
-| `TELEGRAM_CHAT_ID` | Para monitor | Chat Telegram |
+| `TELEGRAM_BOT_TOKEN` | Para Telegram | Token do bot (@BotFather) |
+| `TELEGRAM_BOT_USERNAME` | Para conexão por usuário | Username do bot no link `https://t.me/<bot>?start=<token>` |
+| `TELEGRAM_WEBHOOK_SECRET` | Para webhook | Segredo grande na URL do webhook |
+| `TELEGRAM_CHAT_ID` | Não | Legado/global — não usado pelo fluxo por usuário |
 | `CORS_ORIGINS` | Não | Lista de origens separadas por vírgula |
 | `NODE_ENV` | Não | `production` ativa cookie `Secure` |
 
@@ -428,13 +431,88 @@ Apenas uma execução por vez.
 
 **Nota:** pode levar vários minutos conforme a quantidade de produtos. A requisição HTTP aguarda até o fim (síncrona).
 
+**Telegram:** o resumo é enviado **por usuário**, somente para quem tem o
+Telegram conectado e ativo — cada um recebe apenas os próprios itens. Não há
+resumo global; itens soft-deleted e usuários sem conexão são ignorados.
+
+---
+
+### Telegram (por usuário)
+
+Cada usuário conecta o próprio Telegram e recebe alertas só dos próprios itens.
+O `chat_id` vem sempre do webhook — nunca é aceito do cliente. Rotas
+autenticadas exigem sessão de usuário (não funcionam com `x-api-token`, que não
+está vinculado a um usuário).
+
+#### `GET /api/telegram/status`
+
+Status da conexão do usuário logado. Não expõe `chat_id`, token ou segredo.
+
+**Conectado**
+
+```json
+{
+  "connected": true,
+  "enabled": true,
+  "telegramUsername": "fulano",
+  "telegramFirstName": "Fulano",
+  "telegramLastName": null,
+  "telegramLanguageCode": "pt-br",
+  "telegramChatType": "private",
+  "linkedAt": "2026-05-28 13:00:00",
+  "lastInteractionAt": "2026-05-28 13:01:00"
+}
+```
+
+**Não conectado**
+
+```json
+{ "connected": false }
+```
+
+#### `POST /api/telegram/link-token`
+
+Gera token temporário (uso único, ~15 min) e devolve o link do bot.
+
+```json
+{
+  "telegramBotUrl": "https://t.me/<bot>?start=<token>",
+  "expiresAt": "2026-05-28T13:15:00.000Z"
+}
+```
+
+**Erro 503** — `TELEGRAM_BOT_USERNAME` não configurado no servidor.
+
+#### `POST /api/telegram/test`
+
+Envia mensagem de teste para o Telegram conectado.
+
+| Status | Caso |
+|--------|------|
+| 200 | `{ "ok": true }` |
+| 400 | Sem conexão ativa ou conexão desabilitada |
+| 502 | Falha ao enviar |
+
+#### `POST /api/telegram/disconnect`
+
+Desconecta (soft: `unlinked_at` + `enabled = 0`). Idempotente — retorna o status
+atualizado (`{ "connected": false }`).
+
+#### `POST /api/telegram/webhook/:secret`
+
+Pública, validada pelo `:secret` (comparação em tempo constante). Recebe os
+updates do Telegram, trata `/start <token>` para vincular o chat ao usuário e
+**sempre responde 200** quando o segredo é válido (mesmo com token inválido ou
+mensagem desconhecida), para o Telegram não desabilitar o webhook. Segredo
+inválido → **403**.
+
 ---
 
 ### Admin (somente `role: admin` ou `x-api-token`)
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET | `/api/admin/users` | Lista usuários ativos com contagem de itens |
+| GET | `/api/admin/users` | Lista usuários ativos com contagem de itens e status do Telegram (`telegram_connected`, `telegram_username`) |
 | POST | `/api/admin/users` | Cria ou reativa usuário (`email`, `maxItems`) |
 | PATCH | `/api/admin/users/:id` | Atualiza `maxItems` |
 | DELETE | `/api/admin/users/:id` | Soft delete do usuário |

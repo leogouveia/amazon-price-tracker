@@ -1,6 +1,7 @@
 import "dotenv/config";
 import bcrypt from "bcryptjs";
 import Database from "better-sqlite3";
+import { TELEGRAM_SCHEMA_SQL } from "./telegram-schema";
 
 const DB_PATH = "prices.db";
 const MIGRATION_NAME = "multi_user_v1";
@@ -44,6 +45,14 @@ function ensureSchemaMigrations(db: Database.Database): void {
       applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+}
+
+// Tabelas de Telegram são idempotentes e independentes da migração multi-user.
+// Roda sempre (inclusive em bancos já migrados) para que instalações existentes
+// recebam as tabelas ao executar `pnpm migrate:multi-user`. Requer que `users`
+// já exista (FK), por isso só é chamada após a checagem de schema legado.
+function ensureTelegramSchema(db: Database.Database): void {
+  db.exec(TELEGRAM_SCHEMA_SQL);
 }
 
 function createNewSchema(db: Database.Database): void {
@@ -223,7 +232,10 @@ function runMigration(): void {
     ensureSchemaMigrations(db);
 
     if (isAlreadyMigrated(db)) {
-      console.log("Migração multi-usuário já aplicada. Nada a fazer.");
+      ensureTelegramSchema(db);
+      console.log(
+        "Migração multi-usuário já aplicada. Tabelas de Telegram garantidas.",
+      );
       return;
     }
 
@@ -272,6 +284,9 @@ function runMigration(): void {
     );
 
     db.exec("COMMIT");
+
+    ensureTelegramSchema(db);
+
     console.log("Migração multi-usuário concluída com sucesso.");
   } catch (error) {
     db.exec("ROLLBACK");
