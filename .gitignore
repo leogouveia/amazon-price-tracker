@@ -9,6 +9,9 @@ dist/
 
 # database
 *.db
+*.db-shm
+*.db-wal
+*.db.bak*
 
 # logs
 *.log

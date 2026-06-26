@@ -101,6 +101,8 @@ The cron-based monitor does not need restart after code changes. It will use the
 
 Do not modify production database destructively without a migration and backup guidance.
 
+Database backup files must follow the pattern `prices.db.bak-*` (e.g. `prices.db.bak-2026-06-26`). This ensures they are caught by `.gitignore` and never committed or mixed between environments. The SQLite WAL files (`prices.db-shm`, `prices.db-wal`) are also gitignored — never commit them.
+
 ---
 
 ## Architecture
